@@ -1,0 +1,182 @@
+[
+  {
+    "ip": "185.199.229.156",
+    "port": 8080,
+    "type": "http",
+    "latency": 0.78,
+    "country": "US",
+    "anonymity": "anonymous",
+    "score": 0.7266666666666668
+  },
+  {
+    "ip": "45.128.133.158",
+    "port": 8080,
+    "type": "http",
+    "latency": 0.45,
+    "country": "RU",
+    "anonymity": "anonymous",
+    "score": 0.6830769230769231
+  },
+  {
+    "ip": "185.199.230.160",
+    "port": 8080,
+    "type": "http",
+    "latency": 0.52,
+    "country": "RU",
+    "anonymity": "anonymous",
+    "score": 0.6711111111111111
+  },
+  {
+    "ip": "84.39.112.145",
+    "port": 8080,
+    "type": "http",
+    "latency": 0.98,
+    "country": "PL",
+    "anonymity": "anonymous",
+    "score": 0.5924786324786325
+  },
+  {
+    "ip": "198.50.163.192",
+    "port": 3128,
+    "type": "http",
+    "latency": 0.56,
+    "country": "CA",
+    "anonymity": "unknown",
+    "score": 0.5842735042735043
+  },
+  {
+    "ip": "84.39.113.144",
+    "port": 8080,
+    "type": "http",
+    "latency": 1.12,
+    "country": "PL",
+    "anonymity": "anonymous",
+    "score": 0.5685470085470086
+  },
+  {
+    "ip": "139.59.1.14",
+    "port": 8080,
+    "type": "http",
+    "latency": 0.67,
+    "country": "SG",
+    "anonymity": "unknown",
+    "score": 0.5654700854700856
+  },
+  {
+    "ip": "206.189.57.106",
+    "port": 8080,
+    "type": "http",
+    "latency": 0.73,
+    "country": "SG",
+    "anonymity": "unknown",
+    "score": 0.5552136752136754
+  },
+  {
+    "ip": "84.39.112.144",
+    "port": 8080,
+    "type": "http",
+    "latency": 1.23,
+    "country": "PL",
+    "anonymity": "anonymous",
+    "score": 0.5497435897435897
+  },
+  {
+    "ip": "139.59.56.66",
+    "port": 8080,
+    "type": "http",
+    "latency": 0.84,
+    "country": "SG",
+    "anonymity": "unknown",
+    "score": 0.5364102564102564
+  },
+  {
+    "ip": "103.204.54.81",
+    "port": 8080,
+    "type": "http",
+    "latency": 0.87,
+    "country": "ID",
+    "anonymity": "transparent",
+    "score": 0.4912820512820512
+  },
+  {
+    "ip": "191.96.42.80",
+    "port": 3128,
+    "type": "http",
+    "latency": 1.12,
+    "country": "DE",
+    "anonymity": "unknown",
+    "score": 0.48854700854700855
+  },
+  {
+    "ip": "103.152.112.162",
+    "port": 80,
+    "type": "http",
+    "latency": 0.78,
+    "country": "ID",
+    "anonymity": "unknown",
+    "score": 0.4466666666666666
+  },
+  {
+    "ip": "119.82.252.122",
+    "port": 80,
+    "type": "http",
+    "latency": 0.92,
+    "country": "ID",
+    "anonymity": "unknown",
+    "score": 0.42273504273504275
+  },
+  {
+    "ip": "45.163.193.14",
+    "port": 8080,
+    "type": "http",
+    "latency": 0.94,
+    "country": "BR",
+    "anonymity": "unknown",
+    "score": 0.41931623931623935
+  },
+  {
+    "ip": "185.156.172.62",
+    "port": 8080,
+    "type": "http",
+    "latency": 1.34,
+    "country": "GE",
+    "anonymity": "transparent",
+    "score": 0.41094017094017093
+  },
+  {
+    "ip": "190.61.84.10",
+    "port": 999,
+    "type": "http",
+    "latency": 1.45,
+    "country": "AR",
+    "anonymity": "transparent",
+    "score": 0.39213675213675214
+  },
+  {
+    "ip": "46.164.162.50",
+    "port": 8080,
+    "type": "http",
+    "latency": 1.56,
+    "country": "UA",
+    "anonymity": "transparent",
+    "score": 0.3733333333333333
+  },
+  {
+    "ip": "103.149.162.194",
+    "port": 80,
+    "type": "http",
+    "latency": 1.23,
+    "country": "ID",
+    "anonymity": "unknown",
+    "score": 0.36974358974358973
+  },
+  {
+    "ip": "190.85.133.46",
+    "port": 8080,
+    "type": "http",
+    "latency": 1.78,
+    "country": "CO",
+    "anonymity": "transparent",
+    "score": 0.33572649572649566
+  }
+]
