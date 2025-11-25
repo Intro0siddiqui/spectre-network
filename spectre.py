@@ -31,7 +31,8 @@ class SpectreOrchestrator:
         self.workspace_dir = Path(workspace_dir)
         self.go_scraper = self.workspace_dir / "go_scraper"
         self.python_polish = self.workspace_dir / "python_polish.py"
-        self.mojo_rotator = self.workspace_dir / "rotator.mojo"
+        # Rust rotator pyo3 module (compiled as `rotator_rs` shared library)
+        self.rust_module_name = "rotator_rs"
         
     def run_go_scraper(self, limit: int = 500, protocol: str = "all") -> bool:
         """Run the Go proxy scraper"""
@@ -113,43 +114,112 @@ class SpectreOrchestrator:
             logger.error(f"Python polisher error: {e}")
             return False
     
-    def run_mojo_rotator(self, mode: str = "phantom", test: bool = True) -> bool:
-        """Run the Mojo rotator"""
-        logger.info("Starting Mojo rotator...")
-        
+    # === Rust rotator (pyo3) integration ===
+
+    def _import_rust_rotator(self):
+        """
+        Import the rotator_rs pyo3 module.
+
+        This assumes you have built the Rust crate as a Python extension:
+        - e.g. using maturin or setuptools-rust, producing rotator_rs.*.so
+        - and that it is available on PYTHONPATH / in this workspace.
+        """
         try:
-            cmd = [
-                "mojo", "run", str(self.mojo_rotator)
-            ]
-            
-            if mode:
-                cmd.extend(["--mode", mode])
-            if test:
-                cmd.append("--test")
-            
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=60  # 1 minute timeout
+            import importlib
+
+            module = importlib.import_module(self.rust_module_name)
+            # Basic sanity check
+            if hasattr(module, "version"):
+                try:
+                    v = module.version()
+                    logger.info(f"Loaded Rust rotator module '{self.rust_module_name}' version={v}")
+                except Exception:
+                    logger.info(f"Loaded Rust rotator module '{self.rust_module_name}' (version check failed)")
+            return module
+        except ModuleNotFoundError as e:
+            logger.error(
+                f"Rust rotator module '{self.rust_module_name}' not found. "
+                f"Build the pyo3 extension (rotator.rs) and ensure it is importable. ({e})"
             )
-            
-            if result.returncode == 0:
-                logger.info("Mojo rotator completed successfully")
-                print(result.stdout)
-                return True
-            else:
-                logger.error(f"Mojo rotator failed: {result.stderr}")
-                print("Mojo error:", result.stderr)
-                return False
-                
-        except FileNotFoundError:
-            logger.error("Mojo not found. Please install Mojo SDK from https://www.modular.com/mojo")
-            print("⚠️  Mojo SDK not installed. Please install it first.")
-            return False
+            return None
         except Exception as e:
-            logger.error(f"Mojo rotator error: {e}")
+            logger.error(f"Error importing Rust rotator module '{self.rust_module_name}': {e}")
+            return None
+
+    class SpectreRustRotator:
+        """
+        Thin Python wrapper around rotator_rs.build_chain().
+
+        Provides:
+        - build_decision(mode) -> dict with:
+            {mode, timestamp, chain_id, chain[], encryption[] ...}
+        - safe error handling and logging hooks
+        """
+
+        def __init__(self, workspace: Path, module):
+            self.workspace = workspace
+            self.module = module
+
+        def build_decision(self, mode: str) -> dict:
+            if self.module is None:
+                raise RuntimeError("Rust rotator module not loaded")
+
+            if hasattr(self.module, "validate_mode"):
+                self.module.validate_mode(mode)
+
+            decision = self.module.build_chain(mode, str(self.workspace))
+            if not isinstance(decision, dict):
+                # pyo3 returns a dict-like mapping; guard anyway
+                decision = dict(decision)
+            return decision
+
+    def run_rust_rotator(self, mode: str = "phantom") -> bool:
+        """
+        Use Rust rotator (pyo3) instead of Mojo.
+
+        - Imports rotator_rs
+        - Builds a rotation decision for the given mode
+        - Prints a concise summary including encryption metadata
+        """
+        logger.info("Starting Rust rotator (pyo3)...")
+
+        module = self._import_rust_rotator()
+        if module is None:
             return False
+
+        wrapper = self.SpectreRustRotator(self.workspace_dir, module)
+
+        try:
+            decision = wrapper.build_decision(mode)
+        except Exception as e:
+            logger.error(f"Rust rotator failed to build decision: {e}")
+            return False
+
+        # Pretty-print essential info
+        print("\n=== Spectre Rust Rotator Decision ===")
+        print(f"Mode: {decision.get('mode')}")
+        print(f"Chain ID: {decision.get('chain_id')}")
+        print(f"Timestamp: {decision.get('timestamp')}")
+        chain = decision.get("chain", [])
+        enc = decision.get("encryption", [])
+        print(f"Chain length: {len(chain)}")
+
+        for i, hop in enumerate(chain):
+            enc_meta = enc[i] if i < len(enc) else {}
+            print(
+                f" Hop {hop.get('index', i+1)}: "
+                f"{hop.get('proto')}://{hop.get('ip')}:{hop.get('port')} "
+                f"[{hop.get('country', '-')}] "
+                f"lat={hop.get('latency'):.3f}s score={hop.get('score'):.3f} "
+                f"key={enc_meta.get('key_hex', '')[:16]}... "
+                f"nonce={enc_meta.get('nonce_hex', '')[:12]}..."
+            )
+
+        print(f"Avg latency: {decision.get('avg_latency'):.3f}s")
+        print(f"Score range: {decision.get('min_score'):.3f} - {decision.get('max_score'):.3f}")
+        print("=== End Rust Rotator Decision ===\n")
+
+        return True
     
     def get_proxy_stats(self) -> dict:
         """Get statistics from processed proxy pools"""
@@ -224,9 +294,9 @@ class SpectreOrchestrator:
             logger.error("Pipeline failed at Python polisher step")
             return False
         
-        # Step 3: Mojo rotator
-        if not self.run_mojo_rotator(mode, test=True):
-            logger.error("Pipeline failed at Mojo rotator step")
+        # Step 3: Rust rotator (pyo3)
+        if not self.run_rust_rotator(mode):
+            logger.error("Pipeline failed at Rust rotator step")
             return False
         
         # Step 4: Show statistics
@@ -287,7 +357,76 @@ def main():
     elif args.step == "polish":
         success = orchestrator.run_python_polish("raw_proxies.json")
     elif args.step == "rotate":
-        success = orchestrator.run_mojo_rotator(args.mode, test=True)
+        success = orchestrator.run_rust_rotator(args.mode)
+    elif args.step == "full":
+        success = orchestrator.run_full_pipeline(args.limit, args.protocol, args.mode)
+    
+    sys.exit(0 if success else 1)
+
+if __name__ == "__main__":
+    main()        if not self.run_rust_rotator(mode):
+            logger.error("Pipeline failed at Rust rotator step")
+            return False
+        
+        # Step 4: Show statistics
+        stats = self.get_proxy_stats()
+        self.print_pipeline_summary(stats, time.time() - start_time)
+        
+        logger.info("✅ Spectre Network pipeline completed successfully!")
+        return True
+    
+    def print_pipeline_summary(self, stats: dict, duration: float):
+        """Print pipeline completion summary"""
+        print("\n" + "="*60)
+        print("🕵️  SPECTRE NETWORK PIPELINE SUMMARY")
+        print("="*60)
+        print(f"📊 Raw Proxies Scraped: {stats['raw_count']}")
+        print(f"🔒 DNS-Capable Proxies: {stats['dns_count']}")
+        print(f"🌐 Non-DNS Proxies: {stats['non_dns_count']}")
+        print(f"📈 Combined Pool: {stats['combined_count']}")
+        print(f"⚡ Average Latency: {stats['avg_latency']:.3f}s")
+        print(f"🎯 Average Score: {stats['avg_score']:.3f}")
+        print(f"⏱️  Total Duration: {duration:.2f}s")
+        print("="*60)
+        
+        # Calculate success rates
+        if stats['raw_count'] > 0:
+            dns_rate = (stats['dns_count'] / stats['raw_count']) * 100
+            total_rate = (stats['combined_count'] / stats['raw_count']) * 100
+            print(f"📊 DNS Pool Rate: {dns_rate:.1f}%")
+            print(f"📊 Total Pool Rate: {total_rate:.1f}%")
+
+def main():
+    parser = argparse.ArgumentParser(description="Spectre Network Orchestrator")
+    parser.add_argument("--mode", choices=["lite", "stealth", "high", "phantom"], 
+                       default="phantom", help="Anonymity mode")
+    parser.add_argument("--limit", type=int, default=500, help="Proxy limit")
+    parser.add_argument("--protocol", choices=["all", "http", "https", "socks4", "socks5"],
+                       default="all", help="Proxy protocol")
+    parser.add_argument("--step", choices=["scrape", "polish", "rotate", "full"],
+                       default="full", help="Pipeline step to run")
+    parser.add_argument("--stats", action="store_true", help="Show proxy statistics")
+    
+    args = parser.parse_args()
+    
+    # Initialize orchestrator
+    orchestrator = SpectreOrchestrator()
+    
+    # Create logs directory
+    os.makedirs("logs", exist_ok=True)
+    
+    if args.stats:
+        stats = orchestrator.get_proxy_stats()
+        orchestrator.print_pipeline_summary(stats, 0)
+        return
+    
+    # Run requested pipeline step
+    if args.step == "scrape":
+        success = orchestrator.run_go_scraper(args.limit, args.protocol)
+    elif args.step == "polish":
+        success = orchestrator.run_python_polish("raw_proxies.json")
+    elif args.step == "rotate":
+        success = orchestrator.run_rust_rotator(args.mode)
     elif args.step == "full":
         success = orchestrator.run_full_pipeline(args.limit, args.protocol, args.mode)
     
