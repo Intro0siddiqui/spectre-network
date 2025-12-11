@@ -26,7 +26,6 @@ type Proxy struct {
 }
 
 func scrapeProxyScrape(protocol string, limit int, ch chan<- []Proxy) {
-	defer close(ch)
 	urlStr := fmt.Sprintf("https://api.proxyscrape.com/v2/?request=getproxies&protocol=%s&timeout=10000&country=all&ssl=all&anonymity=all", protocol)
 	
 	client := &http.Client{
@@ -34,7 +33,7 @@ func scrapeProxyScrape(protocol string, limit int, ch chan<- []Proxy) {
 	}
 	resp, err := client.Get(urlStr)
 	if err != nil {
-		fmt.Printf("ProxyScrape (%s) failed: %v\n", protocol, err)
+		fmt.Fprintf(os.Stderr, "ProxyScrape (%s) failed: %v\n", protocol, err)
 		return
 	}
 	defer resp.Body.Close()
@@ -70,16 +69,15 @@ func scrapeProxyScrape(protocol string, limit int, ch chan<- []Proxy) {
 			break
 		}
 	}
-	fmt.Printf("Scraped %d %s from ProxyScrape\n", len(proxies), protocol)
+	fmt.Fprintf(os.Stderr, "Scraped %d %s from ProxyScrape\n", len(proxies), protocol)
 	ch <- proxies
 }
 
 func scrapeFreeProxyList(limit int, ch chan<- []Proxy) {
-	defer close(ch)
 	c := colly.NewCollector(
 		colly.UserAgent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"),
 		colly.MaxDepth(1),
-		colly.Timeout(30*time.Second),
+
 	)
 	
 	proxies := make([]Proxy, 0, limit)
@@ -119,27 +117,26 @@ func scrapeFreeProxyList(limit int, ch chan<- []Proxy) {
 	})
 	
 	c.OnScraped(func(r *colly.Response) {
-		fmt.Printf("Scraped %d from FreeProxyList\n", len(proxies))
+		fmt.Fprintf(os.Stderr, "Scraped %d from FreeProxyList\n", len(proxies))
 		ch <- proxies
 	})
 	
 	c.OnError(func(r *colly.Response, err error) {
-		fmt.Printf("FreeProxyList error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "FreeProxyList error: %v\n", err)
 		ch <- proxies // Return partial results
 	})
 	
 	err := c.Visit("https://free-proxy-list.net/")
 	if err != nil {
-		fmt.Printf("FreeProxyList visit failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "FreeProxyList visit failed: %v\n", err)
 	}
 }
 
 func scrapeSpysOne(limit int, ch chan<- []Proxy) {
-	defer close(ch)
 	c := colly.NewCollector(
 		colly.UserAgent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"),
 		colly.MaxDepth(1),
-		colly.Timeout(30*time.Second),
+
 	)
 	
 	proxies := make([]Proxy, 0, limit)
@@ -187,27 +184,26 @@ func scrapeSpysOne(limit int, ch chan<- []Proxy) {
 	})
 	
 	c.OnScraped(func(r *colly.Response) {
-		fmt.Printf("Scraped %d from Spys.one\n", len(proxies))
+		fmt.Fprintf(os.Stderr, "Scraped %d from Spys.one\n", len(proxies))
 		ch <- proxies
 	})
 	
 	c.OnError(func(r *colly.Response, err error) {
-		fmt.Printf("Spys.one error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Spys.one error: %v\n", err)
 		ch <- proxies
 	})
 	
 	err := c.Visit("http://spys.one/en/anonymous-proxy-list/")
 	if err != nil {
-		fmt.Printf("Spys.one visit failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Spys.one visit failed: %v\n", err)
 	}
 }
 
 func scrapeProxyNova(limit int, ch chan<- []Proxy) {
-	defer close(ch)
 	c := colly.NewCollector(
 		colly.UserAgent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"),
 		colly.MaxDepth(1),
-		colly.Timeout(30*time.Second),
+
 	)
 	
 	proxies := make([]Proxy, 0, limit)
@@ -239,23 +235,22 @@ func scrapeProxyNova(limit int, ch chan<- []Proxy) {
 	})
 	
 	c.OnScraped(func(r *colly.Response) {
-		fmt.Printf("Scraped %d from ProxyNova\n", len(proxies))
+		fmt.Fprintf(os.Stderr, "Scraped %d from ProxyNova\n", len(proxies))
 		ch <- proxies
 	})
 	
 	c.OnError(func(r *colly.Response, err error) {
-		fmt.Printf("ProxyNova error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "ProxyNova error: %v\n", err)
 		ch <- proxies
 	})
 	
 	err := c.Visit("https://www.proxynova.com/proxy-server-list/")
 	if err != nil {
-		fmt.Printf("ProxyNova visit failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "ProxyNova visit failed: %v\n", err)
 	}
 }
 
 func scrapeProxifly(limit int, ch chan<- []Proxy) {
-	defer close(ch)
 	urls := []string{
 		"https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/protocols/http/data.txt",
 		"https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/protocols/https/data.txt",
@@ -284,7 +279,7 @@ func scrapeProxifly(limit int, ch chan<- []Proxy) {
 		
 		resp, err := client.Get(urlStr)
 		if err != nil {
-			fmt.Printf("Proxifly %s failed: %v\n", ptype, err)
+			fmt.Fprintf(os.Stderr, "Proxifly %s failed: %v\n", ptype, err)
 			continue
 		}
 		
@@ -320,12 +315,11 @@ func scrapeProxifly(limit int, ch chan<- []Proxy) {
 		}
 	}
 	
-	fmt.Printf("Scraped %d from Proxifly\n", len(proxies))
+	fmt.Fprintf(os.Stderr, "Scraped %d from Proxifly\n", len(proxies))
 	ch <- proxies
 }
 
 func scrapeOpenProxy(limit int, ch chan<- []Proxy) {
-	defer close(ch)
 	urls := map[string]string{
 		"http":  "https://openproxy.space/list/http",
 		"socks5": "https://openproxy.space/list/socks5",
@@ -341,7 +335,7 @@ func scrapeOpenProxy(limit int, ch chan<- []Proxy) {
 		
 		resp, err := client.Get(urlStr)
 		if err != nil {
-			fmt.Printf("OpenProxy %s failed: %v\n", ptype, err)
+			fmt.Fprintf(os.Stderr, "OpenProxy %s failed: %v\n", ptype, err)
 			continue
 		}
 		
@@ -377,18 +371,17 @@ func scrapeOpenProxy(limit int, ch chan<- []Proxy) {
 		}
 	}
 	
-	fmt.Printf("Scraped %d from OpenProxy\n", len(proxies))
+	fmt.Fprintf(os.Stderr, "Scraped %d from OpenProxy\n", len(proxies))
 	ch <- proxies
 }
 
 func scrapeProxyListDownload(protocol string, limit int, ch chan<- []Proxy) {
-	defer close(ch)
 	urlStr := fmt.Sprintf("https://www.proxy-list.download/api/v1/get?type=%s", protocol)
 	
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Get(urlStr)
 	if err != nil {
-		fmt.Printf("ProxyListDownload (%s) failed: %v\n", protocol, err)
+		fmt.Fprintf(os.Stderr, "ProxyListDownload (%s) failed: %v\n", protocol, err)
 		ch <- nil
 		return
 	}
@@ -425,16 +418,15 @@ func scrapeProxyListDownload(protocol string, limit int, ch chan<- []Proxy) {
 		}
 	}
 	
-	fmt.Printf("Scraped %d %s from ProxyListDownload\n", len(proxies), protocol)
+	fmt.Fprintf(os.Stderr, "Scraped %d %s from ProxyListDownload\n", len(proxies), protocol)
 	ch <- proxies
 }
 
 func scrapeHideMyName(limit int, ch chan<- []Proxy) {
-	defer close(ch)
 	c := colly.NewCollector(
 		colly.UserAgent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"),
 		colly.MaxDepth(1),
-		colly.Timeout(30*time.Second),
+
 	)
 	
 	proxies := make([]Proxy, 0, limit)
@@ -477,29 +469,28 @@ func scrapeHideMyName(limit int, ch chan<- []Proxy) {
 	})
 	
 	c.OnScraped(func(r *colly.Response) {
-		fmt.Printf("Scraped %d from HideMyName\n", len(proxies))
+		fmt.Fprintf(os.Stderr, "Scraped %d from HideMyName\n", len(proxies))
 		ch <- proxies
 	})
 	
 	c.OnError(func(r *colly.Response, err error) {
-		fmt.Printf("HideMyName error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "HideMyName error: %v\n", err)
 		ch <- proxies
 	})
 	
 	err := c.Visit("https://hide.me/en/proxy-list/")
 	if err != nil {
-		fmt.Printf("HideMyName visit failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "HideMyName visit failed: %v\n", err)
 	}
 }
 
 func scrapeFreeProxyWorld(protocol string, limit int, ch chan<- []Proxy) {
-	defer close(ch)
 	urlStr := fmt.Sprintf("https://freeproxy.world/?type=%s&page=1", protocol)
 	
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Get(urlStr)
 	if err != nil {
-		fmt.Printf("FreeProxyWorld (%s) failed: %v\n", protocol, err)
+		fmt.Fprintf(os.Stderr, "FreeProxyWorld (%s) failed: %v\n", protocol, err)
 		ch <- nil
 		return
 	}
@@ -536,21 +527,20 @@ func scrapeFreeProxyWorld(protocol string, limit int, ch chan<- []Proxy) {
 		}
 	}
 	
-	fmt.Printf("Scraped %d %s from FreeProxyWorld\n", len(proxies), protocol)
+	fmt.Fprintf(os.Stderr, "Scraped %d %s from FreeProxyWorld\n", len(proxies), protocol)
 	ch <- proxies
 }
 
 // Real Proxy Platforms Integration
 
 func scrapeWebshareAPI(limit int, ch chan<- []Proxy) {
-	defer close(ch)
 	// Webshare free API - limited but real proxies
 	urlStr := "https://proxy.webshare.io/api/v2/proxy/list/?countries=US,CA,DE,NL,UK,FR&protocols=http,https,socks5&page=1&page_size=100"
 	
 	client := &http.Client{Timeout: 20 * time.Second}
 	resp, err := client.Get(urlStr)
 	if err != nil {
-		fmt.Printf("Webshare API failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Webshare API failed: %v\n", err)
 		ch <- nil
 		return
 	}
@@ -559,7 +549,7 @@ func scrapeWebshareAPI(limit int, ch chan<- []Proxy) {
 	body, _ := io.ReadAll(resp.Body)
 	var data map[string]interface{}
 	if err := json.Unmarshal(body, &data); err != nil {
-		fmt.Printf("Webshare API parse failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Webshare API parse failed: %v\n", err)
 		ch <- nil
 		return
 	}
@@ -567,7 +557,7 @@ func scrapeWebshareAPI(limit int, ch chan<- []Proxy) {
 	proxies := make([]Proxy, 0, limit)
 	proxiesList, ok := data["results"].([]interface{})
 	if !ok {
-		fmt.Printf("Webshare API invalid format\n")
+		fmt.Fprintf(os.Stderr, "Webshare API invalid format\n")
 		ch <- proxies
 		return
 	}
@@ -583,10 +573,10 @@ func scrapeWebshareAPI(limit int, ch chan<- []Proxy) {
 		}
 		
 		// Parse proxy data
-		username := proxyData["username"].(string)
-		password := proxyData["password"].(string)
+		_ = proxyData["username"].(string)
+		_ = proxyData["password"].(string)
 		proxyAddr := proxyData["proxy_address"].(string)
-		port := int(proxyData["port"].(float64))
+		port, _ := strconv.Atoi(fmt.Sprintf("%v", proxyData["port"]))
 		protocol := strings.ToLower(proxyData["protocol"].(string))
 		
 		if proxyAddr != "" && port > 0 {
@@ -599,18 +589,17 @@ func scrapeWebshareAPI(limit int, ch chan<- []Proxy) {
 		}
 	}
 	
-	fmt.Printf("Scraped %d from Webshare API\n", len(proxies))
+	fmt.Fprintf(os.Stderr, "Scraped %d from Webshare API\n", len(proxies))
 	ch <- proxies
 }
 
 func scrapeGeoNodeAPI(protocol string, limit int, ch chan<- []Proxy) {
-	defer close(ch)
 	urlStr := fmt.Sprintf("https://proxylist.geonode.com/api/proxy-list?limit=%d&page=1&sort_by=lastChecked&sort_type=desc&protocols=%s", limit, protocol)
 	
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Get(urlStr)
 	if err != nil {
-		fmt.Printf("GeoNode API (%s) failed: %v\n", protocol, err)
+		fmt.Fprintf(os.Stderr, "GeoNode API (%s) failed: %v\n", protocol, err)
 		ch <- nil
 		return
 	}
@@ -619,7 +608,7 @@ func scrapeGeoNodeAPI(protocol string, limit int, ch chan<- []Proxy) {
 	body, _ := io.ReadAll(resp.Body)
 	var data map[string]interface{}
 	if err := json.Unmarshal(body, &data); err != nil {
-		fmt.Printf("GeoNode API parse failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "GeoNode API parse failed: %v\n", err)
 		ch <- nil
 		return
 	}
@@ -627,7 +616,7 @@ func scrapeGeoNodeAPI(protocol string, limit int, ch chan<- []Proxy) {
 	proxies := make([]Proxy, 0, limit)
 	dataList, ok := data["data"].([]interface{})
 	if !ok {
-		fmt.Printf("GeoNode API invalid format\n")
+		fmt.Fprintf(os.Stderr, "GeoNode API invalid format\n")
 		ch <- proxies
 		return
 	}
@@ -642,11 +631,12 @@ func scrapeGeoNodeAPI(protocol string, limit int, ch chan<- []Proxy) {
 			continue
 		}
 		
-		ip := proxyData["ip"].(string)
-		port := int(proxyData["port"].(float64))
-		ptype := strings.ToLower(proxyData["protocol"].(string))
-		country := strings.ToUpper(proxyData["country"].(string))
-		
+		ip, _ := proxyData["ip"].(string)
+		port, _ := strconv.Atoi(fmt.Sprintf("%v", proxyData["port"]))
+		protoVal, _ := proxyData["protocol"].(string)
+		ptype := strings.ToLower(protoVal)
+		countryVal, _ := proxyData["country"].(string)
+		country := strings.ToUpper(countryVal)		
 		if ip != "" && port > 0 {
 			proxies = append(proxies, Proxy{
 				IP: ip,
@@ -658,14 +648,13 @@ func scrapeGeoNodeAPI(protocol string, limit int, ch chan<- []Proxy) {
 		}
 	}
 	
-	fmt.Printf("Scraped %d %s from GeoNode API\n", len(proxies), protocol)
+	fmt.Fprintf(os.Stderr, "Scraped %d %s from GeoNode API\n", len(proxies), protocol)
 	ch <- proxies
 }
 
 func scrapeProxyScrapeTxtAPI(limit int, ch chan<- []Proxy) {
-	defer close(ch)
 	// Alternative proxy scraper API
-	urlStr := fmt.Sprintf("https://api.proxyscrape.com/v2/", limit)
+	// urlStr := fmt.Sprintf("https://api.proxyscrape.com/v2/", limit)
 	
 	client := &http.Client{Timeout: 15 * time.Second}
 	
@@ -707,11 +696,10 @@ func scrapeProxyScrapeTxtAPI(limit int, ch chan<- []Proxy) {
 		}
 	}
 	
-	fmt.Printf("Scraped from ProxyScrapeTxt API\n")
+	fmt.Fprintf(os.Stderr, "Scraped from ProxyScrapeTxt API\n")
 }
 
 func scrapeGitHubProxyLists(source string, limit int, ch chan<- []Proxy) {
-	defer close(ch)
 	
 	var urls map[string]string
 	switch source {
@@ -748,7 +736,7 @@ func scrapeGitHubProxyLists(source string, limit int, ch chan<- []Proxy) {
 		
 		resp, err := client.Get(urlStr)
 		if err != nil {
-			fmt.Printf("%s %s failed: %v\n", source, protocol, err)
+			fmt.Fprintf(os.Stderr, "%s %s failed: %v\n", source, protocol, err)
 			continue
 		}
 		
@@ -783,16 +771,15 @@ func scrapeGitHubProxyLists(source string, limit int, ch chan<- []Proxy) {
 		}
 	}
 	
-	fmt.Printf("Scraped %d from %s GitHub proxy lists\n", len(allProxies), source)
+	fmt.Fprintf(os.Stderr, "Scraped %d from %s GitHub proxy lists\n", len(allProxies), source)
 	ch <- allProxies
 }
 
 func scrapeProxyDaily(limit int, ch chan<- []Proxy) {
-	defer close(ch)
 	c := colly.NewCollector(
 		colly.UserAgent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"),
 		colly.MaxDepth(1),
-		colly.Timeout(30*time.Second),
+
 	)
 	
 	proxies := make([]Proxy, 0, limit)
@@ -822,30 +809,29 @@ func scrapeProxyDaily(limit int, ch chan<- []Proxy) {
 	})
 	
 	c.OnScraped(func(r *colly.Response) {
-		fmt.Printf("Scraped %d from ProxyDaily\n", len(proxies))
+		fmt.Fprintf(os.Stderr, "Scraped %d from ProxyDaily\n", len(proxies))
 		ch <- proxies
 	})
 	
 	c.OnError(func(r *colly.Response, err error) {
-		fmt.Printf("ProxyDaily error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "ProxyDaily error: %v\n", err)
 		ch <- proxies
 	})
 	
 	err := c.Visit("https://proxydaily.com/proxylist/")
 	if err != nil {
-		fmt.Printf("ProxyDaily visit failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "ProxyDaily visit failed: %v\n", err)
 	}
 }
 
 func scrapeProxyMeshAPI(limit int, ch chan<- []Proxy) {
-	defer close(ch)
 	// ProxyMesh free API endpoint
 	urlStr := fmt.Sprintf("https://proxymesh.com/api/proxy/?limit=%d", limit)
 	
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Get(urlStr)
 	if err != nil {
-		fmt.Printf("ProxyMesh API failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "ProxyMesh API failed: %v\n", err)
 		ch <- nil
 		return
 	}
@@ -880,12 +866,12 @@ func scrapeProxyMeshAPI(limit int, ch chan<- []Proxy) {
 		}
 	}
 	
-	fmt.Printf("Scraped %d from ProxyMesh API\n", len(proxies))
+	fmt.Fprintf(os.Stderr, "Scraped %d from ProxyMesh API\n", len(proxies))
 	ch <- proxies
 }
 
-func validateProxy(p Proxy, ch chan<- Proxy, wg *sync.WaitGroup) {
-	defer wg.Done()
+func validateProxy(p Proxy, ch chan<- Proxy) {
+	// defer wg.Done() is managed by caller
 	
 	// Create proxy URL
 	proxyURL := url.URL{Scheme: p.Type, Host: fmt.Sprintf("%s:%d", p.IP, p.Port)}
@@ -941,8 +927,8 @@ func main() {
 	workers := flag.Int("workers", 100, "Number of concurrent validation workers")
 	flag.Parse()
 
-	fmt.Printf("Spectre Network Proxy Scraper v1.0\n")
-	fmt.Printf("Protocol: %s, Limit: %d, Workers: %d\n\n", *protocol, *limit, *workers)
+	fmt.Fprintf(os.Stderr, "Spectre Network Proxy Scraper v1.0\n")
+	fmt.Fprintf(os.Stderr, "Protocol: %s, Limit: %d, Workers: %d\n\n", *protocol, *limit, *workers)
 
 	// Create channels for scraping results
 	ch := make(chan []Proxy, 15) // Increased for more real sources
@@ -985,7 +971,7 @@ func main() {
 			go scrapeMoreGitHubProxies(perSource, ch)
 			go scrapeProxyListDownload(*protocol, perSource, ch)
 			go scrapeFreeProxyWorld(*protocol, perSource, ch)
-			go scrapeOpenProxy(*protocol, ch)
+			go scrapeOpenProxy(perSource, ch)
 			go scrapeProxifly(perSource, ch)
 			go scrapeFreeProxyList(perSource, ch)
 			go scrapeProxyNova(perSource, ch)
@@ -997,7 +983,7 @@ func main() {
 			go scrapeGitHubProxyLists("thespeedx", perSource, ch)
 			go scrapeGitHubProxyLists("monosans", perSource, ch)
 			go scrapeMoreGitHubProxies(perSource, ch)
-			go scrapeOpenProxy(*protocol, ch)
+			go scrapeOpenProxy(perSource, ch)
 			go scrapeProxifly(perSource, ch)
 			go scrapeSpysOne(perSource, ch)
 			go scrapeFreeProxyList(perSource, ch)
@@ -1010,7 +996,7 @@ func main() {
 
 	// Collect results from all scrapers
 	allProxies := []Proxy{}
-	fmt.Println("Collecting proxy lists from REAL proxy sources...")
+	fmt.Fprintln(os.Stderr, "Collecting proxy lists from REAL proxy sources...")
 	
 	// Determine expected number of sources
 	expectedSources := 18
@@ -1018,14 +1004,21 @@ func main() {
 		expectedSources = 12
 	}
 	
+	timeout := time.After(2 * time.Minute)
 	for i := 0; i < expectedSources; i++ {
-		lst := <-ch
-		if lst != nil {
-			allProxies = append(allProxies, lst...)
+		select {
+		case lst := <-ch:
+			if lst != nil {
+				allProxies = append(allProxies, lst...)
+			}
+		case <-timeout:
+			fmt.Fprintln(os.Stderr, "Timed out waiting for scrapers")
+			goto DoneCollecting
 		}
 	}
+	DoneCollecting:
 
-	fmt.Printf("Total raw proxies collected: %d\n", len(allProxies))
+	fmt.Fprintf(os.Stderr, "Total raw proxies collected: %d\n", len(allProxies))
 	
 	// Deduplicate proxies by IP:Port
 	seen := make(map[string]bool)
@@ -1038,10 +1031,10 @@ func main() {
 		}
 	}
 	
-	fmt.Printf("Unique proxies after deduplication: %d\n", len(uniqueProxies))
+	fmt.Fprintf(os.Stderr, "Unique proxies after deduplication: %d\n", len(uniqueProxies))
 	
 	// Validate proxies concurrently
-	fmt.Printf("Starting validation with %d workers...\n", *workers)
+	fmt.Fprintf(os.Stderr, "Starting validation with %d workers...\n", *workers)
 	validCh := make(chan Proxy, len(uniqueProxies))
 	var wg sync.WaitGroup
 	
@@ -1055,7 +1048,7 @@ func main() {
 			sem <- struct{}{} // Acquire semaphore
 			defer func() { <-sem }() // Release semaphore
 			
-			validateProxy(proxy, validCh, &wg)
+			validateProxy(proxy, validCh)
 		}(p)
 	}
 	
@@ -1086,16 +1079,16 @@ func main() {
 	// Output results
 	data, err := json.MarshalIndent(validatedProxies, "", "  ")
 	if err != nil {
-		fmt.Printf("Error encoding JSON: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error encoding JSON: %v\n", err)
 		os.Exit(1)
 	}
 	
-	fmt.Printf("\nValidated proxies: %d\n", len(validatedProxies))
-	fmt.Printf("Success rate: %.2f%%\n", float64(len(validatedProxies))/float64(len(uniqueProxies))*100)
+	fmt.Fprintf(os.Stderr, "\nValidated proxies: %d\n", len(validatedProxies))
+	fmt.Fprintf(os.Stderr, "Success rate: %.2f%%\n", float64(len(validatedProxies))/float64(len(uniqueProxies))*100)
 	
 	// Write to file if not just showing stdout
 	os.Stdout.Write(data)
-	fmt.Println()
+	fmt.Fprintln(os.Stderr, )
 }
 
 func quickSort(proxies []Proxy, low, high int) {
@@ -1122,7 +1115,6 @@ func partition(proxies []Proxy, low, high int) int {
 // Additional Real Proxy Sources
 
 func scrapeMoreGitHubProxies(limit int, ch chan<- []Proxy) {
-	defer close(ch)
 	
 	// ProxyFish GitHub repository
 	urls := map[string]string{
@@ -1132,7 +1124,7 @@ func scrapeMoreGitHubProxies(limit int, ch chan<- []Proxy) {
 		"socks5": "https://raw.githubusercontent.com/ProxyFish/proxy-list/main/socks5.txt",
 	}
 	
-	client := &http.Client{Timeout: 20 * time.Second)
+	client := &http.Client{Timeout: 20 * time.Second}
 	allProxies := make([]Proxy, 0, limit)
 	
 	for protocol, urlStr := range urls {
@@ -1142,7 +1134,7 @@ func scrapeMoreGitHubProxies(limit int, ch chan<- []Proxy) {
 		
 		resp, err := client.Get(urlStr)
 		if err != nil {
-			fmt.Printf("ProxyFish %s failed: %v\n", protocol, err)
+			fmt.Fprintf(os.Stderr, "ProxyFish %s failed: %v\n", protocol, err)
 			continue
 		}
 		
@@ -1173,12 +1165,11 @@ func scrapeMoreGitHubProxies(limit int, ch chan<- []Proxy) {
 		}
 	}
 	
-	fmt.Printf("Scraped %d from ProxyFish GitHub\n", len(allProxies))
+	fmt.Fprintf(os.Stderr, "Scraped %d from ProxyFish GitHub\n", len(allProxies))
 	ch <- allProxies
 }
 
 func scrapeProxyScrapeLive(limit int, ch chan<- []Proxy) {
-	defer close(ch)
 	
 	// More comprehensive ProxyScrape API with different parameters
 	apis := []string{
@@ -1187,7 +1178,7 @@ func scrapeProxyScrapeLive(limit int, ch chan<- []Proxy) {
 		"https://api.proxyscrape.com/v2/?request=getproxies&protocol=socks5&timeout=10000&country=all&ssl=all&anonymity=all",
 	}
 	
-	client := &http.Client{Timeout: 15 * time.Second)
+	client := &http.Client{Timeout: 15 * time.Second}
 	allProxies := make([]Proxy, 0, limit)
 	
 	for i, urlStr := range apis {
@@ -1197,7 +1188,7 @@ func scrapeProxyScrapeLive(limit int, ch chan<- []Proxy) {
 		
 		resp, err := client.Get(urlStr)
 		if err != nil {
-			fmt.Printf("ProxyScrape API %d failed: %v\n", i+1, err)
+			fmt.Fprintf(os.Stderr, "ProxyScrape API %d failed: %v\n", i+1, err)
 			continue
 		}
 		
@@ -1237,6 +1228,6 @@ func scrapeProxyScrapeLive(limit int, ch chan<- []Proxy) {
 		}
 	}
 	
-	fmt.Printf("Scraped %d from ProxyScrape Live APIs\n", len(allProxies))
+	fmt.Fprintf(os.Stderr, "Scraped %d from ProxyScrape Live APIs\n", len(allProxies))
 	ch <- allProxies
 }

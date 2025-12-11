@@ -73,60 +73,26 @@ python3 spectre.py --step rotate   --mode phantom
 python3 spectre.py --step stats
 ```
 
-SpectreOrchestrator now:
-- Calls Go + Python exactly as before.
-- Imports `rotator_rs` in-process (no subprocess / no Mojo).
-- Uses a `SpectreRustRotator` wrapper plus direct `build_chain` integration.
+### 5. (Optional) Compile to native executable with GraalVM
 
-## Operational Modes
-- **Lite**: HTTP/SOCKS4 pool, local DNS (0.5s latency)
-- **Stealth**: TLS-wrapped HTTP (0.8s latency)
-- **High**: HTTPS/SOCKS5h pool, remote DNS (1.2s latency)
-- **Phantom**: Multi-hop crypto chains with forward secrecy (2-4s latency)
-
-## Performance Targets
-- 500-2000 raw proxies/hour
-- 12% live rate from free pools
-- 95%+ leak resistance in phantom mode
-- 1.5x faster than Tor Browser
-
-## Security & Encryption Features
-
-- Rust-native chain builder with:
-  - Mode-aware selection:
-    - Lite / Stealth / High / Phantom routing semantics
-  - Unique `chain_id` per rotation
-  - Per-hop random `key_hex` (32 bytes) and `nonce_hex` (12 bytes) for AEAD-ready encryption
-- Designed to support:
-  - Layered per-hop encryption (Onion-style) in Phantom mode
-  - Correlation resistance via randomized chains and metadata
-  - Future upgrades to ECDH/AES-GCM or post-quantum schemes using the provided key/nonce scaffolding
-
-## License
-MIT License - Open Source```
-
-This produces an importable `rotator_rs` module exposing:
-- `build_chain(mode: str, workspace: Optional[str]) -> dict`
-- `validate_mode(mode: str)`
-- `version()`
-
-### 4. Run the orchestrated pipeline via spectre.py
+For high-performance native execution:
 
 ```bash
-# Full pipeline: scrape -> polish -> rust rotator (with encryption metadata)
-python3 spectre.py --step full --mode phantom
+# Install GraalVM and set up native-image
+# Make sure you have GraalVM installed and native-image configured
 
-# Or individual steps:
-python3 spectre.py --step scrape   --limit 500 --protocol all
-python3 spectre.py --step polish   --limit 500
-python3 spectre.py --step rotate   --mode phantom
-python3 spectre.py --step stats
+# Build native executable using Maven plugin
+mvn native:build
+
+# Run the native executable directly
+./target/spectre-native --step full --mode phantom
 ```
 
 SpectreOrchestrator now:
 - Calls Go + Python exactly as before.
 - Imports `rotator_rs` in-process (no subprocess / no Mojo).
 - Uses a `SpectreRustRotator` wrapper plus direct `build_chain` integration.
+- Can be compiled to a native executable with GraalVM for improved startup time and performance.
 
 ## Operational Modes
 - **Lite**: HTTP/SOCKS4 pool, local DNS (0.5s latency)

@@ -1,0 +1,4 @@
+Nov 26, 2025 1:52:08 AM SpectreOrchestrator runJavaPolish
+INFO: Starting Java polisher...
+Nov 26, 2025 1:52:09 AM SpectreOrchestrator runJavaPolish
+SEVERE: Java polisher failed: No proxies loaded
