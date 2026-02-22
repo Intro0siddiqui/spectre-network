@@ -7,6 +7,7 @@ use std::io;
 use std::os::raw::c_char;
 use std::path::{Path, PathBuf};
 
+pub mod crypto;
 pub mod polish;
 pub mod rotator;
 pub mod types;
