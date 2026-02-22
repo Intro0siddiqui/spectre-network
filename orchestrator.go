@@ -5,7 +5,6 @@ package main
 #cgo LDFLAGS: -L./target/release -Wl,-rpath=./target/release -lrotator_rs -ldl -lm
 #include <stdlib.h>
 
-// Forward declarations of C functions from Rust C API
 extern char* run_polish_c(const char* raw_json);
 extern char* build_chain_decision_c(const char* mode, const char* dns_json, const char* non_dns_json, const char* combined_json);
 extern void free_c_string(char* s);
@@ -14,9 +13,7 @@ import "C"
 
 import (
 	"encoding/json"
-	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
@@ -25,6 +22,20 @@ import (
 	"unsafe"
 )
 
+// ── ANSI colours ─────────────────────────────────────────────────────────────
+const (
+	reset  = "\033[0m"
+	bold   = "\033[1m"
+	cyan   = "\033[36m"
+	green  = "\033[32m"
+	yellow = "\033[33m"
+	red    = "\033[31m"
+	dim    = "\033[2m"
+)
+
+func col(c, s string) string { return c + s + reset }
+
+// ── Data types ────────────────────────────────────────────────────────────────
 type Proxy struct {
 	IP        string  `json:"ip"`
 	Port      uint16  `json:"port"`
@@ -66,170 +77,273 @@ type RotationDecision struct {
 	Encryption []CryptoHop `json:"encryption"`
 }
 
+// ── CLI entry point ───────────────────────────────────────────────────────────
 func main() {
-	mode := flag.String("mode", "phantom", "Operating mode")
-	limit := flag.Int("limit", 500, "Proxy limit")
-	protocol := flag.String("protocol", "all", "Proxy protocol")
-	step := flag.String("step", "full", "Pipeline step")
-	stats := flag.Bool("stats", false, "Print stats")
-	_ = flag.Int("port", 1080, "SOCKS port")
-	flag.Parse()
-
-	workspace, err := os.Getwd()
-	if err != nil {
-		log.Fatal(err)
+	if len(os.Args) < 2 {
+		printHelp()
+		os.Exit(0)
 	}
 
-	if *stats {
-		printStats(workspace)
-		return
-	}
+	cmd := os.Args[1]
+	args := os.Args[2:]
 
-	switch *step {
-	case "scrape":
-		_, err := runScraper(workspace, *limit, *protocol)
-		if err != nil {
-			log.Fatalf("Scraper failed: %v", err)
-		}
-	case "polish":
-		raw := loadProxies(filepath.Join(workspace, "raw_proxies.json"))
-		_, _, _, err := runPolish(workspace, raw)
-		if err != nil {
-			log.Fatalf("Polish failed: %v", err)
-		}
+	workspace, _ := os.Getwd()
+
+	switch cmd {
+	case "run":
+		mode, limit, protocol := parseRunArgs(args, "phantom", 500, "all")
+		cmdRun(workspace, mode, limit, protocol)
+
+	case "refresh":
+		mode, limit, protocol := parseRunArgs(args, "phantom", 500, "all")
+		cmdRefresh(workspace, mode, limit, protocol)
+
 	case "rotate":
-		dns, nonDNS, combined := loadPools(workspace)
-		decision, err := buildChainDecision(*mode, dns, nonDNS, combined)
-		if err != nil {
-			log.Fatalf("Rotate failed: %v", err)
-		}
-		if decision != nil {
-			printDecision(decision)
-		} else {
-			log.Println("Failed to build chain")
-		}
-	case "serve":
-		// Serve needs port logic, mostly stubbed here as per Rust impl
-		dns, nonDNS, combined := loadPools(workspace)
-		decision, err := buildChainDecision(*mode, dns, nonDNS, combined)
-		if err != nil {
-			log.Fatalf("Rotate serve failed: %v", err)
-		}
-		if decision != nil {
-			printDecision(decision)
-			log.Println("Serve not fully implemented in Go wrapper (tunnel port mapping needed)")
-		} else {
-			log.Println("Failed to build chain. Run 'full' or 'scrape' first to populate pools.")
-		}
-	case "full":
-		raw, err := runScraper(workspace, *limit, *protocol)
-		if err != nil {
-			log.Fatalf("Scraper failed: %v", err)
-		}
-		dns, nonDNS, combined, err := runPolish(workspace, raw)
-		if err != nil {
-			log.Fatalf("Polish failed: %v", err)
-		}
-		decision, err := buildChainDecision(*mode, dns, nonDNS, combined)
-		if err != nil {
-			log.Fatalf("Rotate failed: %v", err)
-		}
-		if decision != nil {
-			printDecision(decision)
-		} else {
-			log.Println("Failed to build chain")
-		}
-		printSummary(len(combined), len(dns), len(nonDNS))
+		mode := flagStr(args, "--mode", "phantom")
+		cmdRotate(workspace, mode)
+
+	case "stats":
+		cmdStats(workspace)
+
+	case "audit":
+		cmdAudit()
+
+	case "help", "--help", "-h":
+		printHelp()
+
 	default:
-		log.Fatalf("Unknown step: %s", *step)
+		fmt.Printf("%s unknown command: %s\n\n", col(red, "✗"), cmd)
+		printHelp()
+		os.Exit(1)
 	}
 }
 
+// ── Commands ──────────────────────────────────────────────────────────────────
+
+// spectre run [--mode phantom|high|stealth|lite] [--limit N] [--protocol all|socks5|https]
+// Full pipeline: scrape → polish → rotate → print chain
+func cmdRun(workspace, mode string, limit int, protocol string) {
+	printBanner()
+	fmt.Printf("%s Scraping fresh proxies (limit=%d, protocol=%s)...\n", col(cyan, "◈"), limit, protocol)
+	raw, err := runScraper(workspace, limit, protocol)
+	if err != nil {
+		log.Fatalf("%s %v", col(red, "✗ Scraper:"), err)
+	}
+	dns, nonDNS, combined, err := runPolish(workspace, raw)
+	if err != nil {
+		log.Fatalf("%s %v", col(red, "✗ Polish:"), err)
+	}
+	fmt.Printf("%s Pool: %s total | %s DNS-capable | %s non-DNS\n",
+		col(green, "✓"),
+		col(bold, fmt.Sprintf("%d", len(combined))),
+		col(bold, fmt.Sprintf("%d", len(dns))),
+		col(bold, fmt.Sprintf("%d", len(nonDNS))))
+
+	decision, err := buildChainDecision(mode, dns, nonDNS, combined)
+	if err != nil || decision == nil {
+		log.Fatalf("%s no chain built — pool may be too small for mode %q", col(red, "✗"), mode)
+	}
+	printChain(decision)
+}
+
+// spectre refresh [--mode ...] [--limit N] [--protocol ...]
+// Re-verify stored pool → fill delta if needed → rotate
+func cmdRefresh(workspace, mode string, limit int, protocol string) {
+	printBanner()
+	combinedPath := filepath.Join(workspace, "proxies_combined.json")
+	if _, err := os.Stat(combinedPath); os.IsNotExist(err) {
+		fmt.Printf("%s No stored pool found — running full scrape instead.\n", col(yellow, "⚠"))
+		cmdRun(workspace, mode, limit, protocol)
+		return
+	}
+	fmt.Printf("%s Loading stored pool...\n", col(cyan, "◈"))
+	stored := loadProxies(combinedPath)
+	fmt.Printf("%s Loaded %d stored proxies. Verifying liveness (this takes a moment)...\n", col(cyan, "◈"), len(stored))
+
+	// Verification is done inside the Rust binary (--step refresh) for robustness
+	// orchestrator.go triggers the Rust binary with --step refresh
+	rustBin := filepath.Join(workspace, "target/release/spectre")
+	c := exec.Command(rustBin, "--step", "refresh", "--mode", mode, "--limit", fmt.Sprintf("%d", limit), "--protocol", protocol)
+	c.Stdout = os.Stdout
+	c.Stderr = os.Stderr
+	if err := c.Run(); err != nil {
+		log.Fatalf("%s refresh failed: %v", col(red, "✗"), err)
+	}
+}
+
+// spectre rotate [--mode ...]
+// Use existing pool on disk to build a new chain
+func cmdRotate(workspace, mode string) {
+	printBanner()
+	dns, nonDNS, combined := loadPools(workspace)
+	if len(combined) == 0 {
+		log.Fatalf("%s No proxy pool on disk. Run `spectre run` first.", col(red, "✗"))
+	}
+	decision, err := buildChainDecision(mode, dns, nonDNS, combined)
+	if err != nil || decision == nil {
+		log.Fatalf("%s Could not build chain for mode %q — try `spectre run` to refresh the pool.", col(red, "✗"), mode)
+	}
+	printChain(decision)
+}
+
+// spectre stats
+// Show pool health without building a chain
+func cmdStats(workspace string) {
+	dns, nonDNS, combined := loadPools(workspace)
+	fmt.Println(col(bold, "\n=== Spectre Pool Stats ==="))
+	if len(combined) == 0 {
+		fmt.Printf("%s No pool on disk. Run `spectre run` first.\n", col(yellow, "⚠"))
+		return
+	}
+	var sumLat, sumScore float64
+	for _, p := range combined {
+		sumLat += p.Latency
+		sumScore += p.Score
+	}
+	n := float64(len(combined))
+	fmt.Printf("  Total proxies : %s\n", col(bold, fmt.Sprintf("%d", len(combined))))
+	fmt.Printf("  DNS-capable   : %s\n", col(green, fmt.Sprintf("%d", len(dns))))
+	fmt.Printf("  Non-DNS       : %s\n", fmt.Sprintf("%d", len(nonDNS)))
+	fmt.Printf("  Avg latency   : %s\n", fmt.Sprintf("%.3fs", sumLat/n))
+	fmt.Printf("  Avg score     : %s\n", fmt.Sprintf("%.3f", sumScore/n))
+}
+
+// spectre audit
+// Launch the security audit container
+func cmdAudit() {
+	fmt.Println(col(bold, "\n=== Spectre Security Audit ==="))
+	fmt.Printf("%s Building audit image...\n", col(cyan, "◈"))
+	build := exec.Command("docker", "build", "-f", "Containerfile.audit", "-t", "spectre-audit", ".")
+	build.Stdout = os.Stdout
+	build.Stderr = os.Stderr
+	if err := build.Run(); err != nil {
+		log.Fatalf("%s docker build failed: %v", col(red, "✗"), err)
+	}
+	fmt.Printf("%s Running security audit...\n\n", col(cyan, "◈"))
+	run := exec.Command("docker", "run", "--rm", "spectre-audit")
+	run.Stdout = os.Stdout
+	run.Stderr = os.Stderr
+	if err := run.Run(); err != nil {
+		os.Exit(1)
+	}
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+func printBanner() {
+	fmt.Printf("\n%s\n%s\n\n",
+		col(bold+cyan, "    ░██████╗██████╗░███████╗░█████╗░████████╗██████╗░███████╗"),
+		col(dim, "         Spectre Network — adversarial proxy mesh"),
+	)
+}
+
+func printHelp() {
+	fmt.Printf(`%s
+
+  %s               Full pipeline: scrape → polish → build chain
+  %s            Re-verify stored pool, fill gaps, build chain
+  %s   [--mode M]   Build chain from stored pool (no scrape)
+  %s               Show pool health stats
+  %s               Run containerised security audit (needs Docker)
+
+%s
+  --mode      phantom | high | stealth | lite   (default: phantom)
+  --limit     N proxies to scrape               (default: 500)
+  --protocol  all | socks5 | https | http       (default: all)
+
+%s
+  spectre run --mode phantom --limit 1000
+  spectre refresh --mode high
+  spectre rotate --mode stealth
+  spectre stats
+  spectre audit
+
+%s
+  ✓  Multi-hop AES-256-GCM encrypted SOCKS5 tunnel (phantom: 3-5 hops)
+  ✓  DNS through chain (SOCKS5h — no local DNS leaks)
+  ✓  Pool persistence with health re-verification
+  ✓  Randomised chain rotation on every run
+
+%s
+  ✗  Traffic shaping / timing obfuscation    → Phase 1 roadmap
+  ✗  Protocol morphing (obfs4 / meek)        → Phase 1 roadmap
+  ✗  P2P proxy discovery (DHT)               → Phase 2 roadmap
+
+`,
+		col(bold, "USAGE:  spectre <command> [flags]"),
+		col(cyan+bold, "run"), col(cyan+bold, "refresh"), col(cyan+bold, "rotate"), col(cyan+bold, "stats"), col(cyan+bold, "audit"),
+		col(bold, "FLAGS:"),
+		col(bold, "EXAMPLES:"),
+		col(bold, "WHAT IT DOES:"),
+		col(bold, "WHAT IT DOESN'T DO YET:"),
+	)
+}
+
+func printChain(d *RotationDecision) {
+	fmt.Printf("\n%s %s | chain_id: %s\n",
+		col(green, "✓ Chain built:"), col(bold, strings.ToUpper(d.Mode)), col(dim, d.ChainID[:12]+"…"))
+	for i, h := range d.Chain {
+		fmt.Printf("  %s hop %d: %s %-22s %s %s\n",
+			col(cyan, "→"), i+1,
+			col(bold, h.Proto),
+			fmt.Sprintf("%s:%d", h.IP, h.Port),
+			col(dim, h.Country),
+			col(yellow, fmt.Sprintf("score=%.2f lat=%.3fs", h.Score, h.Latency)))
+	}
+	fmt.Printf("  %s avg_latency=%.3fs  min_score=%.2f  max_score=%.2f\n\n",
+		col(dim, "chain:"), d.AvgLatency, d.MinScore, d.MaxScore)
+
+	data, _ := json.MarshalIndent(d, "", "  ")
+	saveJSON("last_chain.json", json.RawMessage(data))
+	fmt.Printf("%s Chain saved to %s\n\n", col(dim, "ℹ"), col(bold, "last_chain.json"))
+}
+
+// ── Rust bridge ───────────────────────────────────────────────────────────────
+
 func runScraper(workspace string, limit int, protocol string) ([]Proxy, error) {
-	log.Println("Starting Go scraper...")
 	scraperPath := filepath.Join(workspace, "go_scraper")
 	if _, err := os.Stat(scraperPath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("go_scraper binary not found at %s", scraperPath)
+		return nil, fmt.Errorf("go_scraper binary not found — build with: go build -o go_scraper go_scraper.go")
 	}
-
 	cmd := exec.Command(scraperPath, "--limit", fmt.Sprintf("%d", limit), "--protocol", protocol)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("go scraper err: %v, output: %s", err, string(output))
+		return nil, fmt.Errorf("scraper: %v — %s", err, string(output))
 	}
-
-	rawJSON := string(output)
-	if strings.TrimSpace(rawJSON) == "" {
-		log.Println("Go scraper returned empty output")
+	if strings.TrimSpace(string(output)) == "" {
 		return []Proxy{}, nil
 	}
-
-	err = ioutil.WriteFile(filepath.Join(workspace, "raw_proxies.json"), output, 0644)
-	if err != nil {
-		return nil, err
-	}
-
+	_ = os.WriteFile(filepath.Join(workspace, "raw_proxies.json"), output, 0644)
 	var proxies []Proxy
-	err = json.Unmarshal(output, &proxies)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse go_scraper output: %v", err)
+	if err := json.Unmarshal(output, &proxies); err != nil {
+		return nil, fmt.Errorf("parse scraper output: %v", err)
 	}
-	log.Printf("Scraped %d proxies\n", len(proxies))
 	return proxies, nil
 }
 
 func runPolish(workspace string, proxies []Proxy) (dns, nonDNS, combined []Proxy, err error) {
-	log.Printf("Polishing %d proxies...\n", len(proxies))
-
 	proxiesJSON, err := json.Marshal(proxies)
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	cRaw := C.CString(string(proxiesJSON))
+	defer C.free(unsafe.Pointer(cRaw))
 
-	cRawJSON := C.CString(string(proxiesJSON))
-	defer C.free(unsafe.Pointer(cRawJSON))
-
-	cOutJSON := C.run_polish_c(cRawJSON)
-	if cOutJSON == nil {
+	cOut := C.run_polish_c(cRaw)
+	if cOut == nil {
 		return nil, nil, nil, fmt.Errorf("rust polish returned null")
 	}
-	defer C.free_c_string(cOutJSON)
-
-	outStr := C.GoString(cOutJSON)
+	defer C.free_c_string(cOut)
 
 	var result PolishResult
-	err = json.Unmarshal([]byte(outStr), &result)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to parse polish result: %v", err)
+	if err := json.Unmarshal([]byte(C.GoString(cOut)), &result); err != nil {
+		return nil, nil, nil, fmt.Errorf("parse polish result: %v", err)
 	}
 
-	// Save pools
 	saveJSON(filepath.Join(workspace, "proxies_dns.json"), result.DNS)
 	saveJSON(filepath.Join(workspace, "proxies_non_dns.json"), result.NonDNS)
 	saveJSON(filepath.Join(workspace, "proxies_combined.json"), result.Combined)
-
 	return result.DNS, result.NonDNS, result.Combined, nil
-}
-
-func loadProxies(path string) []Proxy {
-	var proxies []Proxy
-	data, err := ioutil.ReadFile(path)
-	if err != nil {
-		return proxies
-	}
-	_ = json.Unmarshal(data, &proxies)
-	return proxies
-}
-
-func saveJSON(path string, v interface{}) {
-	data, _ := json.MarshalIndent(v, "", "  ")
-	_ = ioutil.WriteFile(path, data, 0644)
-}
-
-func loadPools(workspace string) (dns, nonDNS, combined []Proxy) {
-	return loadProxies(filepath.Join(workspace, "proxies_dns.json")),
-		loadProxies(filepath.Join(workspace, "proxies_non_dns.json")),
-		loadProxies(filepath.Join(workspace, "proxies_combined.json"))
 }
 
 func buildChainDecision(mode string, dns, nonDNS, combined []Proxy) (*RotationDecision, error) {
@@ -248,47 +362,68 @@ func buildChainDecision(mode string, dns, nonDNS, combined []Proxy) (*RotationDe
 	cCombined := C.CString(string(combinedJSON))
 	defer C.free(unsafe.Pointer(cCombined))
 
-	cOutJSON := C.build_chain_decision_c(cMode, cDNS, cNonDNS, cCombined)
-	if cOutJSON == nil {
-		return nil, nil // Null decision implies failure to build
+	cOut := C.build_chain_decision_c(cMode, cDNS, cNonDNS, cCombined)
+	if cOut == nil {
+		return nil, nil
 	}
-	defer C.free_c_string(cOutJSON)
+	defer C.free_c_string(cOut)
 
-	outStr := C.GoString(cOutJSON)
-	var decision RotationDecision
-	err := json.Unmarshal([]byte(outStr), &decision)
-	if err != nil {
+	var d RotationDecision
+	if err := json.Unmarshal([]byte(C.GoString(cOut)), &d); err != nil {
 		return nil, err
 	}
-	return &decision, nil
+	return &d, nil
 }
 
-func printDecision(d *RotationDecision) {
-	data, _ := json.MarshalIndent(d, "", "  ")
-	fmt.Println(string(data))
-}
+// ── IO helpers ────────────────────────────────────────────────────────────────
 
-func printStats(workspace string) {
-	dns, nonDNS, combined := loadPools(workspace)
-	fmt.Println("\n=== Spectre Network Stats ===")
-	fmt.Printf("Total proxies (Combined): %d\n", len(combined))
-	fmt.Printf("DNS-Capable: %d\n", len(dns))
-	fmt.Printf("Non-DNS: %d\n", len(nonDNS))
-
-	if len(combined) > 0 {
-		var sumLat, sumScore float64
-		for _, p := range combined {
-			sumLat += p.Latency
-			sumScore += p.Score
-		}
-		fmt.Printf("Average Latency: %.3fs\n", sumLat/float64(len(combined)))
-		fmt.Printf("Average Score: %.3f\n", sumScore/float64(len(combined)))
+func loadProxies(path string) []Proxy {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
 	}
+	var p []Proxy
+	_ = json.Unmarshal(data, &p)
+	return p
 }
 
-func printSummary(total, dns, nonDNS int) {
-	fmt.Println("\n=== Spectre Polish Summary ===")
-	fmt.Printf("Total proxies: %d\n", total)
-	fmt.Printf("DNS-capable: %d\n", dns)
-	fmt.Printf("Non-DNS: %d\n", nonDNS)
+func saveJSON(path string, v interface{}) {
+	data, _ := json.MarshalIndent(v, "", "  ")
+	_ = os.WriteFile(path, data, 0644)
+}
+
+func loadPools(workspace string) (dns, nonDNS, combined []Proxy) {
+	return loadProxies(filepath.Join(workspace, "proxies_dns.json")),
+		loadProxies(filepath.Join(workspace, "proxies_non_dns.json")),
+		loadProxies(filepath.Join(workspace, "proxies_combined.json"))
+}
+
+// ── Flag parsing ──────────────────────────────────────────────────────────────
+
+func flagStr(args []string, name, def string) string {
+	for i, a := range args {
+		if a == name && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return def
+}
+
+func flagInt(args []string, name string, def int) int {
+	v := flagStr(args, name, "")
+	if v == "" {
+		return def
+	}
+	var n int
+	fmt.Sscanf(v, "%d", &n)
+	if n == 0 {
+		return def
+	}
+	return n
+}
+
+func parseRunArgs(args []string, defaultMode string, defaultLimit int, defaultProto string) (mode string, limit int, protocol string) {
+	return flagStr(args, "--mode", defaultMode),
+		flagInt(args, "--limit", defaultLimit),
+		flagStr(args, "--protocol", defaultProto)
 }
