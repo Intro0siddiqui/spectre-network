@@ -16,6 +16,19 @@ pub struct Proxy {
     pub anonymity: String,
     #[serde(default)]
     pub score: f64,
+    /// Consecutive verification failures (prune at >= 3)
+    #[serde(default)]
+    pub fail_count: u32,
+    /// Unix timestamp of last successful or attempted verify
+    #[serde(default)]
+    pub last_verified: u64,
+    /// Whether the last verification probe succeeded
+    #[serde(default = "default_alive")]
+    pub alive: bool,
+}
+
+fn default_alive() -> bool {
+    true
 }
 
 impl Proxy {

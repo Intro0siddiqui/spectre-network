@@ -1,11 +1,11 @@
-use clap::Parser;
-use std::process::Command;
-use std::path::PathBuf;
-use std::fs;
 use anyhow::{Context, Result};
-use log::{info, error};
+use clap::Parser;
+use log::{error, info, warn};
 use rotator_rs::types::{Proxy, RotationDecision};
-use rotator_rs::{polish, rotator};
+use rotator_rs::{polish, rotator, verifier};
+use std::fs;
+use std::path::PathBuf;
+use std::process::Command;
 
 mod tunnel;
 
@@ -30,6 +30,10 @@ struct Cli {
 
     #[arg(long, default_value_t = 1080)]
     port: u16,
+
+    /// Skip pool re-verification and always scrape fresh proxies
+    #[arg(long)]
+    force_scrape: bool,
 }
 
 #[tokio::main]
@@ -71,19 +75,48 @@ async fn main() -> Result<()> {
                 error!("Failed to build chain. Run 'full' or 'scrape' first to populate pools.");
             }
         }
+        "refresh" => {
+            // Load existing pool, re-verify, fill delta if needed
+            let combined = load_proxies(&workspace.join("proxies_combined.json"))?;
+            info!("Loaded {} proxies from stored pool", combined.len());
+
+            let verified = verifier::verify_pool(combined).await;
+
+            // If unhealthy (too few alive), scrape fresh and merge
+            let needs_scrape = !verifier::is_pool_healthy(&verified, 6 * 3600) || cli.force_scrape;
+            let refreshed = if needs_scrape {
+                warn!("Pool is stale or too small — scraping fresh proxies to fill delta...");
+                let raw = run_scraper(&workspace, cli.limit, &cli.protocol)?;
+                let mut merged = verified;
+                merged.extend(raw);
+                merged
+            } else {
+                info!("Pool is healthy — skipping scrape");
+                verified
+            };
+
+            let (dns, non_dns, combined) = run_polish(&workspace, refreshed)?;
+            let decision = rotator::build_chain_decision(&cli.mode, &dns, &non_dns, &combined);
+            if let Some(d) = decision {
+                print_decision(&d);
+            } else {
+                error!("Failed to build chain after refresh");
+            }
+            print_summary(combined.len(), dns.len(), non_dns.len());
+        }
         "full" => {
             let raw = run_scraper(&workspace, cli.limit, &cli.protocol)?;
             let (dns, non_dns, combined) = run_polish(&workspace, raw)?;
             let decision = rotator::build_chain_decision(&cli.mode, &dns, &non_dns, &combined);
-            
+
             if let Some(d) = decision {
                 print_decision(&d);
             } else {
                 error!("Failed to build chain");
             }
-            
-             // Print summary
-             print_summary(combined.len(), dns.len(), non_dns.len());
+
+            // Print summary
+            print_summary(combined.len(), dns.len(), non_dns.len());
         }
         _ => {
             error!("Unknown step: {}", cli.step);
@@ -96,7 +129,7 @@ async fn main() -> Result<()> {
 fn run_scraper(workspace: &PathBuf, limit: usize, protocol: &str) -> Result<Vec<Proxy>> {
     info!("Starting Go scraper...");
     let scraper_path = workspace.join("go_scraper");
-    
+
     // Check if scraper exists
     if !scraper_path.exists() {
         anyhow::bail!("go_scraper binary not found at {}", scraper_path.display());
@@ -111,12 +144,18 @@ fn run_scraper(workspace: &PathBuf, limit: usize, protocol: &str) -> Result<Vec<
         .context("Failed to execute go_scraper")?;
 
     if !output.status.success() {
-        error!("Go scraper stderr: {}", String::from_utf8_lossy(&output.stderr));
-        anyhow::bail!("Go scraper failed with exit code: {:?}", output.status.code());
+        error!(
+            "Go scraper stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        anyhow::bail!(
+            "Go scraper failed with exit code: {:?}",
+            output.status.code()
+        );
     }
 
     let raw_json = String::from_utf8(output.stdout)?;
-    
+
     // Check if empty
     if raw_json.trim().is_empty() {
         info!("Go scraper returned empty output");
@@ -125,23 +164,36 @@ fn run_scraper(workspace: &PathBuf, limit: usize, protocol: &str) -> Result<Vec<
 
     // Save raw
     fs::write(workspace.join("raw_proxies.json"), &raw_json)?;
-    
+
     // Parse
-    let proxies: Vec<Proxy> = serde_json::from_str(&raw_json).context("Failed to parse go_scraper output")?;
+    let proxies: Vec<Proxy> =
+        serde_json::from_str(&raw_json).context("Failed to parse go_scraper output")?;
     info!("Scraped {} proxies", proxies.len());
     Ok(proxies)
 }
 
-fn run_polish(workspace: &PathBuf, proxies: Vec<Proxy>) -> Result<(Vec<Proxy>, Vec<Proxy>, Vec<Proxy>) > {
+fn run_polish(
+    workspace: &PathBuf,
+    proxies: Vec<Proxy>,
+) -> Result<(Vec<Proxy>, Vec<Proxy>, Vec<Proxy>)> {
     info!("Polishing {} proxies...", proxies.len());
     let unique = polish::deduplicate_proxies(proxies);
     let scored = polish::calculate_scores(unique);
     let (dns, non_dns) = polish::split_proxy_pools(scored.clone());
 
     // Save pools
-    fs::write(workspace.join("proxies_dns.json"), serde_json::to_string_pretty(&dns)?)?;
-    fs::write(workspace.join("proxies_non_dns.json"), serde_json::to_string_pretty(&non_dns)?)?;
-    fs::write(workspace.join("proxies_combined.json"), serde_json::to_string_pretty(&scored)?)?;
+    fs::write(
+        workspace.join("proxies_dns.json"),
+        serde_json::to_string_pretty(&dns)?,
+    )?;
+    fs::write(
+        workspace.join("proxies_non_dns.json"),
+        serde_json::to_string_pretty(&non_dns)?,
+    )?;
+    fs::write(
+        workspace.join("proxies_combined.json"),
+        serde_json::to_string_pretty(&scored)?,
+    )?;
 
     Ok((dns, non_dns, scored))
 }
@@ -154,7 +206,7 @@ fn load_proxies(path: &PathBuf) -> Result<Vec<Proxy>> {
     if content.trim().is_empty() {
         return Ok(Vec::new());
     }
-    Ok(serde_json::from_str(&content)?) 
+    Ok(serde_json::from_str(&content)?)
 }
 
 fn load_pools(workspace: &PathBuf) -> Result<(Vec<Proxy>, Vec<Proxy>, Vec<Proxy>)> {
@@ -174,9 +226,10 @@ fn print_stats(workspace: &PathBuf) -> Result<()> {
     println!("Total proxies (Combined): {}", combined.len());
     println!("DNS-Capable: {}", dns.len());
     println!("Non-DNS: {}", non_dns.len());
-    
+
     if !combined.is_empty() {
-        let avg_latency: f64 = combined.iter().map(|p| p.latency).sum::<f64>() / combined.len() as f64;
+        let avg_latency: f64 =
+            combined.iter().map(|p| p.latency).sum::<f64>() / combined.len() as f64;
         let avg_score: f64 = combined.iter().map(|p| p.score).sum::<f64>() / combined.len() as f64;
         println!("Average Latency: {:.3}s", avg_latency);
         println!("Average Score: {:.3}", avg_score);

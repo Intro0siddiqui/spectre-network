@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 pub mod polish;
 pub mod rotator;
 pub mod types;
+pub mod verifier;
 
 use types::Proxy;
 
