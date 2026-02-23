@@ -8,26 +8,31 @@ A self-contained, adversarial proxy mesh. Farms its own proxy pool, scores and f
 
 | Layer | Language | Role |
 |---|---|---|
-| Scraper | Go | Fetches proxies from 10+ sources concurrently |
-| Engine | Rust | Polishes, scores, and builds encrypted chains |
-| Orchestrator | Go + CGO | CLI that drives the full pipeline |
-| Tunnel | Rust (tokio) | SOCKS5 server with per-chain AES-256-GCM encryption |
-| Audit | Go | Containerised adversarial leak testing |
+| Scraper | Go | Fetches proxies from 12+ sources concurrently |
+| Engine | Rust (`rotator_rs`) | Polishes, scores, and builds encrypted chains |
+| Orchestrator | Go + CGO | Primary CLI that drives the full pipeline via FFI into the Rust lib |
+| Tunnel | Rust (tokio) | SOCKS5 server with per-connection AES-256-GCM encryption |
+| Audit | Go | Containerised adversarial leak testing (9-test suite) |
+
+The Go orchestrator (`orchestrator.go`) is the primary `spectre` binary. It calls into the compiled Rust shared library (`librotator_rs.so`) via CGO/FFI for all core logic (polishing, chain building, and serving), and shells out to the Go scraper binary (`go_scraper`) for proxy collection.
 
 ---
 
 ## Build
 
 ```bash
-# 1. Build the Rust engine (shared library + binary)
+# 1. Build the Rust engine (shared library + standalone binary)
 PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 cargo build --release
 
-# 2. Build the Go orchestrator (links against the Rust lib via CGO)
+# 2. Build the Go orchestrator (links against librotator_rs.so via CGO)
 CGO_ENABLED=1 go build -o spectre orchestrator.go
 
 # 3. Build the Go scraper
 go build -o go_scraper go_scraper.go
 ```
+
+> **Note:** The `spectre` binary produced by the Go build is the intended entry-point.
+> The standalone Rust binary at `target/release/spectre` is used internally by the `refresh` command.
 
 ---
 
@@ -41,17 +46,19 @@ spectre <command> [flags]
 |---|---|
 | `spectre run` | Scrape fresh proxies → polish → build chain |
 | `spectre refresh` | Re-verify stored pool → fill gaps → build chain |
-| `spectre rotate` | Build new chain from stored pool (instant) |
+| `spectre rotate` | Build new chain from stored pool (no scrape, instant) |
+| `spectre serve` | Build chain then start a live SOCKS5 proxy server |
 | `spectre stats` | Show pool health without building a chain |
-| `spectre audit` | Run containerised adversarial security test (needs Docker) |
+| `spectre audit` | Run containerised adversarial security test (needs Podman) |
 
 ### Flags
 
 | Flag | Values | Default |
 |---|---|---|
 | `--mode` | `phantom` \| `high` \| `stealth` \| `lite` | `phantom` |
-| `--limit` | integer | `500` |
+| `--limit` | integer (1–10 000) | `500` |
 | `--protocol` | `all` \| `socks5` \| `https` \| `http` | `all` |
+| `--port` | integer | `1080` |
 
 ### Examples
 
@@ -65,10 +72,13 @@ spectre refresh --mode phantom
 # Instant rotation using whatever pool is on disk
 spectre rotate --mode high
 
+# Start a persistent SOCKS5 server on port 1080
+spectre serve --mode phantom --port 1080
+
 # Check pool stats
 spectre stats
 
-# Run the full security audit inside Docker
+# Run the full security audit inside Podman
 spectre audit
 ```
 
@@ -92,7 +102,8 @@ spectre audit
 - ✅ Proxy pool persistence with live health re-verification
 - ✅ Randomised chain assembly on every rotation — no fixed exit IP
 - ✅ Weighted scoring (latency, anonymity, country, protocol)
-- ✅ Containerised adversarial security audit
+- ✅ Containerised adversarial security audit (9-test suite)
+- ✅ Encryption keys kept in memory only — only chain topology is saved to `last_chain.json`
 
 ## What It Doesn't Do Yet
 
@@ -111,11 +122,80 @@ For a **targeted nation-state adversary** with infrastructure access to your ISP
 ## Security Audit
 
 ```bash
-# Builds + runs the audit container, prints a scored report
+# Auto-builds + runs the audit container, prints a scored report
 spectre audit
 ```
 
-Tests performed: IP leak, DNS leak, header leak (X-Forwarded-For / Via), proxy reachability, latency budget.
+Requires **Podman** (not Docker). The command auto-builds the `spectre-audit` probe binary if missing, then builds and runs the `Containerfile.audit` image.
+
+Tests performed:
+
+| Test | What it checks |
+|---|---|
+| IP Leak | Chain exit IP differs from host IP |
+| DNS Leak | DNS resolves via chain, not local resolver |
+| Header Leak | No `X-Forwarded-For`, `Via`, `X-Real-Ip`, `Forwarded` headers |
+| Additional Headers | No `X-Client-IP`, `CF-Connecting-IP`, `True-Client-IP`, etc. |
+| Proxy Reachable | SOCKS5 port is accepting connections |
+| Latency Budget | End-to-end request completes within 6 s |
+| IPv6 Leak | IPv6 address not exposed through chain |
+| TLS Stripping | HTTPS connections are not downgraded |
+| Timing Analysis | Timing variance is within acceptable bounds |
+
+Grading: **A+** (9/9) → **A** (≥8/9) → **B** (≥7/9) → **C** (≥6/9) → **F** (<6/9).
+
+---
+
+## Proxy Sources
+
+The Go scraper fans out concurrently across up to 12 sources:
+
+- ProxyScrape API (HTTP + SOCKS5)
+- TheSpeedX GitHub proxy lists
+- monosans GitHub proxy lists
+- vakhov/fresh-proxy-list
+- hookzof/socks5_list
+- iplocate/free-proxy-list
+- komutan234/Proxy-List-Free
+- Proxifly free-proxy-list
+- GeoNode API (HTTP + SOCKS5)
+- FreeProxyList.net (HTML scrape via Colly)
+
+---
+
+## Disk Layout
+
+After a successful run the following files are written to the working directory:
+
+| File | Contents |
+|---|---|
+| `raw_proxies.json` | Raw scraped proxies (pre-polish) |
+| `proxies_combined.json` | All scored proxies |
+| `proxies_dns.json` | SOCKS5 proxies suitable for DNS-through-chain |
+| `proxies_non_dns.json` | HTTP/HTTPS proxies |
+| `last_chain.json` | **Topology only** — chain IPs/ports, no encryption keys |
+
+> **Security note:** Encryption keys (AES-256-GCM key + nonce per hop) are derived at chain-build time and held in process memory only. They are never written to disk. `last_chain.json` contains only the network topology, so anyone with filesystem access cannot retroactively decrypt captured traffic.
+
+---
+
+## Container Deployment
+
+### Runtime image (`Containerfile`)
+
+Build the binaries and pool on the host first, then:
+
+```bash
+# Pre-populate pool
+./spectre run --mode phantom --limit 500
+
+# Build and run the container
+podman build -t spectre-preloaded -f Containerfile .
+podman run -d --name spectre-node -p 1080:1080 spectre-preloaded
+```
+
+The container runs `spectre serve --mode phantom --port 1080` as its default command.
+Base image: **ubuntu:24.04**. Runs as non-root user `spectre` (UID 2000).
 
 ---
 

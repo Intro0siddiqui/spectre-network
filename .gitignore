@@ -4,6 +4,7 @@
 # Compiled Go binaries
 go_scraper
 spectre
+spectre-audit
 
 # Runtime-generated proxy pool files
 raw_proxies.json

@@ -1,0 +1,74 @@
+# Spectre Network — Security Audit Image (Podman)
+#
+# This image runs a full self-contained security audit:
+#   1. Loads the pre-built proxy pool from the host
+#   2. Builds a phantom chain and starts the SOCKS5 server on :1080
+#   3. Runs spectre-audit against itself to probe for IP/DNS/header leaks
+#   4. Prints a security scorecard (grade A+ → F)
+#
+# Build workflow (run on host first):
+#   1. cargo build --release --no-default-features
+#   2. CGO_ENABLED=1 go build -o spectre orchestrator.go
+#   3. go build -o go_scraper go_scraper.go
+#   4. cd security-audit && go build -o ../spectre-audit .
+#   5. ./spectre run --mode phantom --limit 500   # populates proxies_*.json
+#   6. podman build -f Containerfile.audit -t spectre-audit .
+#   7. podman run --rm spectre-audit
+
+FROM ubuntu:24.04
+WORKDIR /app
+
+LABEL maintainer="spectre-network"
+LABEL version="1.0.0"
+LABEL description="Spectre Network — self-contained security audit"
+
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Rust shared library
+COPY target/release/librotator_rs.so /usr/lib/librotator_rs.so
+RUN ldconfig
+
+# Binaries
+COPY spectre       /usr/local/bin/spectre
+COPY go_scraper    /usr/local/bin/go_scraper
+COPY spectre-audit /usr/local/bin/spectre-audit
+RUN chmod +x /usr/local/bin/spectre /usr/local/bin/go_scraper /usr/local/bin/spectre-audit
+
+# Pre-filled proxy pool
+COPY proxies_dns.json proxies_non_dns.json proxies_combined.json /app/
+
+# Audit entrypoint:
+#   - Starts the SOCKS5 server in the background on :1080
+#   - Waits for it to be ready
+#   - Runs the security probe tool against it
+#   - Exits with the audit result code
+RUN printf '#!/bin/bash\nset -e\n\
+echo "[audit] Starting Spectre SOCKS5 server (phantom mode)..."\n\
+spectre serve --mode phantom --port 1080 &\n\
+SPECTRE_PID=$!\n\
+echo "[audit] Waiting for SOCKS5 server to come up..."\n\
+for i in $(seq 1 15); do\n\
+  if curl -s --socks5-hostname 127.0.0.1:1080 --max-time 3 https://api.ipify.org > /dev/null 2>&1; then\n\
+    echo "[audit] SOCKS5 is up. Running security tests..."\n\
+    break\n\
+  fi\n\
+  sleep 1\n\
+done\n\
+spectre-audit\n\
+EXIT_CODE=$?\n\
+kill $SPECTRE_PID 2>/dev/null || true\n\
+exit $EXIT_CODE\n' > /usr/local/bin/audit-entrypoint.sh && \
+    chmod +x /usr/local/bin/audit-entrypoint.sh
+
+# Non-root user
+RUN groupadd --gid 2000 spectre && \
+    useradd --uid 2000 --gid spectre --create-home --shell /bin/bash spectre && \
+    chown -R spectre:spectre /app /usr/local/bin/audit-entrypoint.sh
+
+USER spectre:spectre
+EXPOSE 1080
+
+CMD ["/usr/local/bin/audit-entrypoint.sh"]

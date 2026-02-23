@@ -367,18 +367,33 @@ func cmdStats(workspace string) {
 }
 
 // spectre audit
-// Launch the security audit container via Podman
+// Runs a self-contained Podman security probe:
+//   1. Starts the SOCKS5 chain inside the container
+//   2. Runs spectre-audit to test IP/DNS/header/IPv6/TLS leaks
+//   3. Prints a security scorecard (A+ → F)
 func cmdAudit() {
 	fmt.Println(col(bold, "\n=== Spectre Security Audit ==="))
+
+	// Auto-build spectre-audit probe binary if missing
+	if _, err := os.Stat("spectre-audit"); os.IsNotExist(err) {
+		fmt.Printf("%s Building spectre-audit probe...\n", col(cyan, "◈"))
+		auditBuild := exec.Command("go", "build", "-o", "spectre-audit", "./security-audit/")
+		auditBuild.Stdout = os.Stdout
+		auditBuild.Stderr = os.Stderr
+		if err := auditBuild.Run(); err != nil {
+			log.Fatalf("%s Failed to build spectre-audit: %v", col(red, "✗"), err)
+		}
+	}
+
 	fmt.Printf("%s Building audit image with Podman...\n", col(cyan, "◈"))
-	// Build using the pre-loaded runtime Containerfile (binaries must already be compiled)
-	build := exec.Command("podman", "build", "-f", "Containerfile", "-t", "spectre-audit", ".")
+	build := exec.Command("podman", "build", "-f", "Containerfile.audit", "-t", "spectre-audit", ".")
 	build.Stdout = os.Stdout
 	build.Stderr = os.Stderr
 	if err := build.Run(); err != nil {
 		log.Fatalf("%s podman build failed: %v", col(red, "✗"), err)
 	}
-	fmt.Printf("%s Running security audit...\n\n", col(cyan, "◈"))
+
+	fmt.Printf("%s Running security probe...\n\n", col(cyan, "◈"))
 	run := exec.Command("podman", "run", "--rm", "spectre-audit")
 	run.Stdout = os.Stdout
 	run.Stderr = os.Stderr
