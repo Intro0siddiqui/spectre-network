@@ -1,12 +1,14 @@
 package main
 
 /*
-#cgo pkg-config: python3
 #cgo LDFLAGS: -L./target/release -Wl,-rpath=./target/release -lrotator_rs -ldl -lm
 #include <stdlib.h>
 
 extern char* run_polish_c(const char* raw_json);
 extern char* build_chain_decision_c(const char* mode, const char* dns_json, const char* non_dns_json, const char* combined_json);
+extern char* build_chain_topology_c(const char* mode, const char* dns_json, const char* non_dns_json, const char* combined_json);
+extern char* derive_keys_from_secret_c(const char* master_secret, const char* chain_id, int num_hops);
+extern int start_spectre_server_c(unsigned short port, const char* decision_json);
 extern void free_c_string(char* s);
 */
 import "C"
@@ -77,6 +79,89 @@ type RotationDecision struct {
 	Encryption []CryptoHop `json:"encryption"`
 }
 
+// ChainTopology contains only the chain structure without cryptographic material.
+// This struct is safe to persist to disk as it excludes encryption keys and nonces.
+// SECURITY: Using this for last_chain.json prevents plaintext key storage.
+type ChainTopology struct {
+	ChainID    string    `json:"chain_id"`
+	Hops       []HopInfo `json:"hops"`
+	CreatedAt  uint64    `json:"created_at"`
+	Mode       string    `json:"mode"`
+	AvgLatency float64   `json:"avg_latency"`
+	MinScore   float64   `json:"min_score"`
+	MaxScore   float64   `json:"max_score"`
+}
+
+// HopInfo contains only the network topology information for a chain hop.
+// Excludes all cryptographic material (keys, nonces, country, latency, score).
+type HopInfo struct {
+	IP   string `json:"ip"`
+	Port uint16 `json:"port"`
+	Type string `json:"type"`
+}
+
+// toChainTopology converts a RotationDecision to ChainTopology, stripping all encryption keys.
+// This is the safe version to persist to disk.
+func (d *RotationDecision) toChainTopology() ChainTopology {
+	hops := make([]HopInfo, len(d.Chain))
+	for i, h := range d.Chain {
+		hops[i] = HopInfo{
+			IP:   h.IP,
+			Port: h.Port,
+			Type: h.Proto,
+		}
+	}
+	return ChainTopology{
+		ChainID:    d.ChainID,
+		Hops:       hops,
+		CreatedAt:  d.Timestamp,
+		Mode:       d.Mode,
+		AvgLatency: d.AvgLatency,
+		MinScore:   d.MinScore,
+		MaxScore:   d.MaxScore,
+	}
+}
+
+// ── Input validation ──────────────────────────────────────────────────────────
+
+// validateMode checks if the mode parameter is one of the allowed values
+func validateMode(mode string) bool {
+	validModes := map[string]bool{
+		"lite":    true,
+		"stealth": true,
+		"high":    true,
+		"phantom": true,
+	}
+	return validModes[mode]
+}
+
+// validateLimit checks if the limit parameter is within acceptable bounds
+// Prevents resource exhaustion from excessively large values
+func validateLimit(limit int) bool {
+	return limit > 0 && limit <= 10000
+}
+
+// validateProtocol checks if the protocol parameter is valid
+func validateProtocol(protocol string) bool {
+	validProtocols := map[string]bool{
+		"all":    true,
+		"socks5": true,
+		"https":  true,
+		"http":   true,
+	}
+	return validProtocols[protocol]
+}
+
+// sanitizeMode normalizes and validates the mode string
+// Returns the normalized mode and a boolean indicating validity
+func sanitizeMode(mode string) (string, bool) {
+	normalized := strings.ToLower(strings.TrimSpace(mode))
+	if !validateMode(normalized) {
+		return "", false
+	}
+	return normalized, true
+}
+
 // ── CLI entry point ───────────────────────────────────────────────────────────
 func main() {
 	if len(os.Args) < 2 {
@@ -92,14 +177,51 @@ func main() {
 	switch cmd {
 	case "run":
 		mode, limit, protocol := parseRunArgs(args, "phantom", 500, "all")
+		// Validate inputs before proceeding
+		if sanitizedMode, ok := sanitizeMode(mode); !ok {
+			fmt.Printf("%s Invalid mode: %s. Allowed: lite, stealth, high, phantom\n", col(red, "✗"), mode)
+			os.Exit(1)
+		} else {
+			mode = sanitizedMode
+		}
+		if !validateLimit(limit) {
+			fmt.Printf("%s Invalid limit: %d. Must be between 1 and 10000\n", col(red, "✗"), limit)
+			os.Exit(1)
+		}
+		if !validateProtocol(protocol) {
+			fmt.Printf("%s Invalid protocol: %s. Allowed: all, socks5, https, http\n", col(red, "✗"), protocol)
+			os.Exit(1)
+		}
 		cmdRun(workspace, mode, limit, protocol)
 
 	case "refresh":
 		mode, limit, protocol := parseRunArgs(args, "phantom", 500, "all")
+		// Validate inputs before proceeding
+		if sanitizedMode, ok := sanitizeMode(mode); !ok {
+			fmt.Printf("%s Invalid mode: %s. Allowed: lite, stealth, high, phantom\n", col(red, "✗"), mode)
+			os.Exit(1)
+		} else {
+			mode = sanitizedMode
+		}
+		if !validateLimit(limit) {
+			fmt.Printf("%s Invalid limit: %d. Must be between 1 and 10000\n", col(red, "✗"), limit)
+			os.Exit(1)
+		}
+		if !validateProtocol(protocol) {
+			fmt.Printf("%s Invalid protocol: %s. Allowed: all, socks5, https, http\n", col(red, "✗"), protocol)
+			os.Exit(1)
+		}
 		cmdRefresh(workspace, mode, limit, protocol)
 
 	case "rotate":
 		mode := flagStr(args, "--mode", "phantom")
+		// Validate mode before proceeding
+		if sanitizedMode, ok := sanitizeMode(mode); !ok {
+			fmt.Printf("%s Invalid mode: %s. Allowed: lite, stealth, high, phantom\n", col(red, "✗"), mode)
+			os.Exit(1)
+		} else {
+			mode = sanitizedMode
+		}
 		cmdRotate(workspace, mode)
 
 	case "stats":
@@ -107,6 +229,17 @@ func main() {
 
 	case "audit":
 		cmdAudit()
+
+	case "serve":
+		mode := flagStr(args, "--mode", "phantom")
+		port := flagInt(args, "--port", 1080)
+		if sanitizedMode, ok := sanitizeMode(mode); !ok {
+			fmt.Printf("%s Invalid mode: %s. Allowed: lite, stealth, high, phantom\n", col(red, "✗"), mode)
+			os.Exit(1)
+		} else {
+			mode = sanitizedMode
+		}
+		cmdServe(workspace, mode, port)
 
 	case "help", "--help", "-h":
 		printHelp()
@@ -186,6 +319,31 @@ func cmdRotate(workspace, mode string) {
 	printChain(decision)
 }
 
+// spectre serve [--mode M] [--port P]
+func cmdServe(workspace, mode string, port int) {
+	printBanner()
+	dns, nonDNS, combined := loadPools(workspace)
+	if len(combined) == 0 {
+		log.Fatalf("%s No proxy pool on disk. Run `spectre run` first.", col(red, "✗"))
+	}
+	decision, err := buildChainDecision(mode, dns, nonDNS, combined)
+	if err != nil || decision == nil {
+		log.Fatalf("%s Could not build chain for mode %q", col(red, "✗"), mode)
+	}
+	printChain(decision)
+
+	fmt.Printf("%s Starting SOCKS5 server on port %d...\n", col(green, "✓"), port)
+
+	decisionJSON, _ := json.Marshal(decision)
+	cDecision := C.CString(string(decisionJSON))
+	defer C.free(unsafe.Pointer(cDecision))
+
+	res := C.start_spectre_server_c(C.ushort(port), cDecision)
+	if res != 0 {
+		log.Fatalf("%s Server failed with exit code: %d", col(red, "✗"), res)
+	}
+}
+
 // spectre stats
 // Show pool health without building a chain
 func cmdStats(workspace string) {
@@ -209,18 +367,19 @@ func cmdStats(workspace string) {
 }
 
 // spectre audit
-// Launch the security audit container
+// Launch the security audit container via Podman
 func cmdAudit() {
 	fmt.Println(col(bold, "\n=== Spectre Security Audit ==="))
-	fmt.Printf("%s Building audit image...\n", col(cyan, "◈"))
-	build := exec.Command("docker", "build", "-f", "Containerfile.audit", "-t", "spectre-audit", ".")
+	fmt.Printf("%s Building audit image with Podman...\n", col(cyan, "◈"))
+	// Build using the pre-loaded runtime Containerfile (binaries must already be compiled)
+	build := exec.Command("podman", "build", "-f", "Containerfile", "-t", "spectre-audit", ".")
 	build.Stdout = os.Stdout
 	build.Stderr = os.Stderr
 	if err := build.Run(); err != nil {
-		log.Fatalf("%s docker build failed: %v", col(red, "✗"), err)
+		log.Fatalf("%s podman build failed: %v", col(red, "✗"), err)
 	}
 	fmt.Printf("%s Running security audit...\n\n", col(cyan, "◈"))
-	run := exec.Command("docker", "run", "--rm", "spectre-audit")
+	run := exec.Command("podman", "run", "--rm", "spectre-audit")
 	run.Stdout = os.Stdout
 	run.Stderr = os.Stderr
 	if err := run.Run(); err != nil {
@@ -242,9 +401,10 @@ func printHelp() {
 
   %s               Full pipeline: scrape → polish → build chain
   %s            Re-verify stored pool, fill gaps, build chain
-  %s   [--mode M]   Build chain from stored pool (no scrape)
-  %s               Show pool health stats
-  %s               Run containerised security audit (needs Docker)
+  spectre rotate  [--mode M]            Build chain from stored pool (no scrape)
+  spectre serve   [--mode M] [--port P]  Start SOCKS5 proxy server (default port: 1080)
+  spectre stats                          Show pool health stats
+  spectre audit                          Run containerised security audit (needs Podman)
 
 %s
   --mode      phantom | high | stealth | lite   (default: phantom)
@@ -260,22 +420,16 @@ func printHelp() {
 
 %s
   ✓  Multi-hop AES-256-GCM encrypted SOCKS5 tunnel (phantom: 3-5 hops)
-  ✓  DNS through chain (SOCKS5h — no local DNS leaks)
+  ✓  DNS through chain — no local DNS leaks
   ✓  Pool persistence with health re-verification
   ✓  Randomised chain rotation on every run
-
-%s
-  ✗  Traffic shaping / timing obfuscation    → Phase 1 roadmap
-  ✗  Protocol morphing (obfs4 / meek)        → Phase 1 roadmap
-  ✗  P2P proxy discovery (DHT)               → Phase 2 roadmap
 
 `,
 		col(bold, "USAGE:  spectre <command> [flags]"),
 		col(cyan+bold, "run"), col(cyan+bold, "refresh"), col(cyan+bold, "rotate"), col(cyan+bold, "stats"), col(cyan+bold, "audit"),
 		col(bold, "FLAGS:"),
 		col(bold, "EXAMPLES:"),
-		col(bold, "WHAT IT DOES:"),
-		col(bold, "WHAT IT DOESN'T DO YET:"),
+		col(bold, "FEATURES:"),
 	)
 }
 
@@ -293,9 +447,13 @@ func printChain(d *RotationDecision) {
 	fmt.Printf("  %s avg_latency=%.3fs  min_score=%.2f  max_score=%.2f\n\n",
 		col(dim, "chain:"), d.AvgLatency, d.MinScore, d.MaxScore)
 
-	data, _ := json.MarshalIndent(d, "", "  ")
+	// SECURITY: Save only chain topology to disk, NOT the encryption keys.
+	// Keys remain only in memory for the duration of this session.
+	// This prevents anyone with file access from retroactively decrypting traffic.
+	topology := d.toChainTopology()
+	data, _ := json.MarshalIndent(topology, "", "  ")
 	saveJSON("last_chain.json", json.RawMessage(data))
-	fmt.Printf("%s Chain saved to %s\n\n", col(dim, "ℹ"), col(bold, "last_chain.json"))
+	fmt.Printf("%s Chain topology saved to %s (encryption keys kept in memory only)\n\n", col(dim, "ℹ"), col(bold, "last_chain.json"))
 }
 
 // ── Rust bridge ───────────────────────────────────────────────────────────────
@@ -306,17 +464,19 @@ func runScraper(workspace string, limit int, protocol string) ([]Proxy, error) {
 		return nil, fmt.Errorf("go_scraper binary not found — build with: go build -o go_scraper go_scraper.go")
 	}
 	cmd := exec.Command(scraperPath, "--limit", fmt.Sprintf("%d", limit), "--protocol", protocol)
-	output, err := cmd.CombinedOutput()
+	// Pipe scraper progress logs to terminal (stderr), capture only JSON (stdout)
+	cmd.Stderr = os.Stderr
+	output, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("scraper: %v — %s", err, string(output))
+		return nil, fmt.Errorf("scraper failed: %v", err)
 	}
-	if strings.TrimSpace(string(output)) == "" {
+	if strings.TrimSpace(string(output)) == "" || strings.TrimSpace(string(output)) == "[]" {
 		return []Proxy{}, nil
 	}
 	_ = os.WriteFile(filepath.Join(workspace, "raw_proxies.json"), output, 0644)
 	var proxies []Proxy
 	if err := json.Unmarshal(output, &proxies); err != nil {
-		return nil, fmt.Errorf("parse scraper output: %v", err)
+		return nil, fmt.Errorf("parse scraper output: %v — raw: %.80s", err, string(output))
 	}
 	return proxies, nil
 }
@@ -347,6 +507,11 @@ func runPolish(workspace string, proxies []Proxy) (dns, nonDNS, combined []Proxy
 }
 
 func buildChainDecision(mode string, dns, nonDNS, combined []Proxy) (*RotationDecision, error) {
+	// Validate mode before passing to Rust FFI
+	if !validateMode(mode) {
+		return nil, fmt.Errorf("invalid mode: %s (allowed: lite, stealth, high, phantom)", mode)
+	}
+	
 	cMode := C.CString(mode)
 	defer C.free(unsafe.Pointer(cMode))
 
@@ -364,7 +529,7 @@ func buildChainDecision(mode string, dns, nonDNS, combined []Proxy) (*RotationDe
 
 	cOut := C.build_chain_decision_c(cMode, cDNS, cNonDNS, cCombined)
 	if cOut == nil {
-		return nil, nil
+		return nil, fmt.Errorf("build_chain_decision_c returned null for mode: %s", mode)
 	}
 	defer C.free_c_string(cOut)
 

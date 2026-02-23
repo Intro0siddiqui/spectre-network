@@ -2,12 +2,28 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use log::{error, info, warn};
 use rotator_rs::types::{Proxy, RotationDecision};
-use rotator_rs::{polish, rotator, verifier};
+use rotator_rs::{polish, rotator, tunnel, verifier};
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
-mod tunnel;
+fn init_logging() {
+    let fmt_layer = fmt::layer()
+        .with_target(true)
+        .with_thread_ids(true)
+        .with_file(true)
+        .with_line_number(true);
+
+    let filter_layer = EnvFilter::try_from_default_env()
+        .or_else(|_| EnvFilter::try_new("info"))
+        .unwrap();
+
+    tracing_subscriber::registry()
+        .with(filter_layer)
+        .with(fmt_layer)
+        .init();
+}
 
 #[derive(Parser)]
 #[command(name = "spectre")]
@@ -38,7 +54,7 @@ struct Cli {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    env_logger::init();
+    init_logging();
 
     let cli = Cli::parse();
     let workspace = std::env::current_dir()?;

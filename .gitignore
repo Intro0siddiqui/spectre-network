@@ -1,19 +1,23 @@
 # Rust build artifacts
 /target/
 
-# Go compiled binaries
+# Compiled Go binaries
 go_scraper
 spectre
 
-# Proxy data files (generated at runtime)
+# Runtime-generated proxy pool files
 raw_proxies.json
 proxies_dns.json
 proxies_non_dns.json
 proxies_combined.json
+last_chain.json
 
 # Log files
 *.log
 logs/
 
-# Misc
+# Debug / temporary files
+*.txt
+
+# Shared library (built locally)
 *.so

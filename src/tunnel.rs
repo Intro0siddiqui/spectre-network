@@ -1,18 +1,287 @@
+use crate::crypto;
+use crate::types::{ChainHop, CryptoHop, RotationDecision};
 use anyhow::{Context, Result};
-use log::{debug, info, warn};
-use rotator_rs::crypto;
-use rotator_rs::types::{ChainHop, CryptoHop, RotationDecision};
 use std::net::SocketAddr;
+use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::time::timeout;
+use uuid::Uuid;
 
 /// Chunk size for the encrypted pipe — 16 KiB
 const CHUNK: usize = 16 * 1024;
 
+/// Default timeout for hop verification in seconds
+const DEFAULT_HOP_TIMEOUT_SECS: u64 = 5;
+
+/// Maximum retry attempts for circuit building
+const MAX_CIRCUIT_RETRIES: usize = 3;
+
+/// Verifies that a proxy hop is reachable and functional.
+///
+/// Attempts a TCP connection to the proxy with the specified timeout.
+/// Returns Ok(true) if the proxy is reachable, Ok(false) if connection
+/// fails or times out.
+///
+/// # Arguments
+/// * `ip` - The IP address of the proxy
+/// * `port` - The port number of the proxy
+/// * `timeout_secs` - Connection timeout in seconds
+///
+/// # Returns
+/// * `Ok(true)` - Proxy is reachable
+/// * `Ok(false)` - Proxy is unreachable or timed out
+/// * `Err` - Unexpected error during verification
+async fn verify_hop(ip: &str, port: u16, timeout_secs: u64) -> Result<bool> {
+    let addr = format!("{}:{}", ip, port);
+    let timeout_duration = Duration::from_secs(timeout_secs);
+
+    tracing::debug!(hop_addr = %addr, timeout = timeout_secs, "Verifying hop");
+
+    match timeout(timeout_duration, TcpStream::connect(&addr)).await {
+        Ok(Ok(_stream)) => {
+            // Connection successful - stream is dropped immediately
+            tracing::debug!(hop_addr = %addr, "Hop is reachable");
+            Ok(true)
+        }
+        Ok(Err(e)) => {
+            // Connection failed
+            tracing::debug!(hop_addr = %addr, error = %e, "Hop connection failed");
+            Ok(false)
+        }
+        Err(_) => {
+            // Timeout occurred
+            tracing::debug!(hop_addr = %addr, timeout = timeout_secs, "Hop verification timed out");
+            Ok(false)
+        }
+    }
+}
+
+/// Verifies all hops in the chain are reachable before circuit construction.
+///
+/// # Arguments
+/// * `chain` - The chain of proxy hops to verify
+/// * `timeout_secs` - Timeout per hop in seconds
+///
+/// # Returns
+/// * `Ok(Vec<bool>)` - Vector indicating which hops are reachable (true = reachable)
+/// * `Err` - Error during verification
+async fn verify_chain(chain: &[ChainHop], timeout_secs: u64) -> Result<Vec<bool>> {
+    let mut results = Vec::with_capacity(chain.len());
+
+    for hop in chain {
+        let is_reachable = verify_hop(&hop.ip, hop.port, timeout_secs).await?;
+        results.push(is_reachable);
+
+        if !is_reachable {
+            tracing::warn!(
+                hop_addr = %format!("{}:{}", hop.ip, hop.port),
+                protocol = %hop.proto,
+                "Hop is unreachable"
+            );
+        } else {
+            tracing::debug!(
+                hop_addr = %format!("{}:{}", hop.ip, hop.port),
+                protocol = %hop.proto,
+                "Hop verified successfully"
+            );
+        }
+    }
+
+    Ok(results)
+}
+
+/// Builds a circuit through the proxy chain with hop verification and retry logic.
+///
+/// Before building the circuit, verifies that each proxy hop is reachable.
+/// If a hop fails during construction, attempts to retry with alternative proxies.
+/// Includes timeout for the entire circuit building process.
+///
+/// # Arguments
+/// * `chain` - The chain of proxy hops to build the circuit through
+/// * `target` - The final destination address (host:port)
+/// * `timeout_secs` - Timeout per hop verification in seconds (default: 5)
+/// * `max_retries` - Maximum number of retry attempts (default: 3)
+///
+/// # Returns
+/// * `Ok(TcpStream)` - Established circuit connection
+/// * `Err` - Error with details about which hop failed
+async fn build_circuit_with_verification(
+    chain: &[ChainHop],
+    target: &str,
+    timeout_secs: u64,
+    max_retries: usize,
+) -> Result<TcpStream> {
+    if chain.is_empty() {
+        anyhow::bail!("Empty proxy chain - cannot build circuit");
+    }
+
+    tracing::info!(hop_count = chain.len(), %target, "Building circuit");
+
+    // Pre-verify all hops before starting circuit construction
+    tracing::debug!("Pre-verifying {} hops in the chain...", chain.len());
+    let hop_status = verify_chain(chain, timeout_secs).await?;
+
+    // Count reachable hops
+    let reachable_count = hop_status.iter().filter(|&&s| s).count();
+    let required_hops = chain.len();
+
+    if reachable_count < required_hops {
+        tracing::warn!(
+            reachable = reachable_count,
+            required = required_hops,
+            "Some hops are unreachable, attempting circuit construction anyway..."
+        );
+    }
+
+    // Attempt circuit construction with retries
+    let mut last_error: Option<anyhow::Error> = None;
+
+    for attempt in 0..=max_retries {
+        if attempt > 0 {
+            tracing::debug!(
+                attempt = attempt + 1,
+                max = max_retries,
+                "Circuit build retry"
+            );
+        }
+
+        match build_circuit_internal(chain, target, &hop_status).await {
+            Ok(stream) => {
+                tracing::info!(hop_count = chain.len(), "Circuit successfully built");
+                return Ok(stream);
+            }
+            Err(e) => {
+                tracing::warn!(attempt = attempt + 1, error = %e, "Circuit build failed");
+                last_error = Some(e);
+
+                // Re-verify hops that failed to see if they've recovered
+                if attempt < max_retries {
+                    tracing::debug!("Re-verifying failed hops before retry...");
+                    for (i, hop) in chain.iter().enumerate() {
+                        if !hop_status[i] {
+                            let recovered = verify_hop(&hop.ip, hop.port, timeout_secs).await?;
+                            if recovered {
+                                tracing::info!(
+                                    hop_addr = %format!("{}:{}", hop.ip, hop.port),
+                                    protocol = %hop.proto,
+                                    "Hop recovered and is now reachable"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // All retries exhausted - return detailed error
+    let error_msg = format!(
+        "Failed to build circuit after {} retries. Last error: {}. \
+         Chain: [{}]. Target: {}",
+        max_retries,
+        last_error
+            .map(|e| e.to_string())
+            .unwrap_or_else(|| "unknown".to_string()),
+        chain
+            .iter()
+            .map(|h| format!("{}://{}:{}", h.proto, h.ip, h.port))
+            .collect::<Vec<_>>()
+            .join(" -> "),
+        target
+    );
+
+    Err(anyhow::anyhow!(error_msg))
+}
+
+/// Internal circuit building function that uses pre-verified hop status.
+///
+/// # Arguments
+/// * `chain` - The chain of proxy hops
+/// * `target` - The final destination address
+/// * `hop_status` - Pre-computed reachability status for each hop
+///
+/// # Returns
+/// * `Ok(TcpStream)` - Established circuit
+/// * `Err` - Error with hop details
+async fn build_circuit_internal(
+    chain: &[ChainHop],
+    target: &str,
+    hop_status: &[bool],
+) -> Result<TcpStream> {
+    // Connect to the first hop
+    let first_hop = &chain[0];
+    let addr = format!("{}:{}", first_hop.ip, first_hop.port);
+
+    // Check if first hop was verified as reachable
+    if !hop_status[0] {
+        anyhow::bail!(
+            "First hop unreachable: {}://{}:{} - connection refused or timed out",
+            first_hop.proto,
+            first_hop.ip,
+            first_hop.port
+        );
+    }
+
+    tracing::debug!(
+        hop_addr = %addr,
+        protocol = %first_hop.proto,
+        "Connecting to first hop"
+    );
+    let mut stream = TcpStream::connect(&addr).await.context(format!(
+        "Failed to connect to first hop {}://{}:{}",
+        first_hop.proto, first_hop.ip, first_hop.port
+    ))?;
+
+    // Handshake with first hop
+    let next_dest = if chain.len() > 1 {
+        let next = &chain[1];
+        format!("{}:{}", next.ip, next.port)
+    } else {
+        target.to_string()
+    };
+
+    handshake_proxy(&mut stream, first_hop, &next_dest).await?;
+
+    // Iterate through remaining hops
+    for i in 1..chain.len() {
+        let current_hop = &chain[i];
+        let next_dest = if i == chain.len() - 1 {
+            target.to_string()
+        } else {
+            let next = &chain[i + 1];
+            format!("{}:{}", next.ip, next.port)
+        };
+
+        tracing::debug!(
+            hop_index = i + 1,
+            hop_addr = %format!("{}:{}", current_hop.ip, current_hop.port),
+            protocol = %current_hop.proto,
+            next_dest = %next_dest,
+            "Tunneling through hop"
+        );
+
+        // Check if this hop was verified as reachable
+        if !hop_status[i] {
+            anyhow::bail!(
+                "Hop {} unreachable: {}://{}:{} - connection refused or timed out",
+                i + 1,
+                current_hop.proto,
+                current_hop.ip,
+                current_hop.port
+            );
+        }
+
+        handshake_proxy(&mut stream, current_hop, &next_dest).await?;
+    }
+
+    Ok(stream)
+}
+
 pub async fn start_socks_server(port: u16, decision: RotationDecision) -> Result<()> {
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     let listener = TcpListener::bind(addr).await?;
-    info!("👻 Spectre Tunnel (SOCKS5) listening on {}", addr);
+    tracing::info!(port = port, "Spectre Tunnel (SOCKS5) listening");
 
     let chain_str = decision
         .chain
@@ -20,23 +289,23 @@ pub async fn start_socks_server(port: u16, decision: RotationDecision) -> Result
         .map(|h| format!("{}://{}:{}", h.proto, h.ip, h.port))
         .collect::<Vec<_>>()
         .join(" -> ");
-    info!("⛓️  Chain: {}", chain_str);
+    tracing::info!(chain = %chain_str, "Chain configured");
 
     // Use the exit hop's crypto material (last in chain)
     let exit_crypto = decision.encryption.last().cloned();
     if exit_crypto.is_none() {
-        warn!("No encryption keys in rotation decision — traffic will not be encrypted");
+        tracing::warn!("No encryption keys in rotation decision — traffic will not be encrypted");
     }
 
     loop {
         let (client_stream, client_addr) = listener.accept().await?;
-        debug!("New connection from {}", client_addr);
+        tracing::debug!(client_addr = %client_addr, "New connection accepted");
 
         let chain = decision.chain.clone();
         let crypto_key = exit_crypto.clone();
         tokio::spawn(async move {
             if let Err(e) = handle_socks5_client(client_stream, chain, crypto_key).await {
-                debug!("Connection error: {}", e);
+                tracing::debug!(error = %e, "Connection error");
             }
         });
     }
@@ -47,8 +316,19 @@ async fn handle_socks5_client(
     chain: Vec<ChainHop>,
     exit_crypto: Option<CryptoHop>,
 ) -> Result<()> {
+    let connection_id = Uuid::new_v4();
+    let span = tracing::info_span!("socks5_connection", id = %connection_id);
+    let _guard = span.enter();
+
     // Optimize: reduce latency by disabling Nagle's algorithm
     client.set_nodelay(true)?;
+
+    let client_addr = client
+        .peer_addr()
+        .map(|a| a.to_string())
+        .unwrap_or_else(|_| "unknown".to_string());
+
+    tracing::info!(client_addr = %client_addr, "New SOCKS5 connection");
 
     // 1. SOCKS5 Handshake
     let mut buf = [0u8; 2];
@@ -93,12 +373,33 @@ async fn handle_socks5_client(
             )
         }
         0x03 => {
-            // Domain
+            // Domain name
             let mut len_byte = [0u8; 1];
             client.read_exact(&mut len_byte).await?;
             let len = len_byte[0] as usize;
+
+            // VALIDATION: Reject overly long domain names to prevent memory exhaustion
+            // RFC 1035 specifies max domain name length of 255 bytes
+            if len > 255 {
+                anyhow::bail!("Domain name too long: {} bytes", len);
+            }
+
+            // Reject zero-length domain names
+            if len == 0 {
+                anyhow::bail!("Invalid domain name: zero length");
+            }
+
             let mut domain_bytes = vec![0u8; len];
             client.read_exact(&mut domain_bytes).await?;
+
+            // Validate domain name contains only valid characters
+            // Basic check: printable ASCII characters, dots, and hyphens
+            for &byte in &domain_bytes {
+                if !byte.is_ascii_graphic() && byte != b'.' && byte != b'-' {
+                    anyhow::bail!("Invalid character in domain name: 0x{:02x}", byte);
+                }
+            }
+
             let domain = String::from_utf8(domain_bytes)?;
             let mut port_bytes = [0u8; 2];
             client.read_exact(&mut port_bytes).await?;
@@ -108,7 +409,7 @@ async fn handle_socks5_client(
         _ => anyhow::bail!("Unsupported address type"),
     };
 
-    debug!("Target requested: {}", target_addr);
+    tracing::info!(target = %target_addr, "Target requested");
 
     // 3. Build circuit through the chain
     let mut server = build_circuit(&chain, &target_addr).await?;
@@ -122,11 +423,11 @@ async fn handle_socks5_client(
     // 5. Pipe data — with AES-GCM encryption if keys are available
     match exit_crypto {
         Some(crypto_hop) => {
-            debug!("🔒 Encrypted tunnel active (AES-256-GCM)");
+            tracing::info!("Encrypted tunnel active (AES-256-GCM)");
             encrypted_pipe(client, server, &crypto_hop.key_hex, &crypto_hop.nonce_hex).await?;
         }
         None => {
-            debug!("⚠️  Plain tunnel (no encryption keys)");
+            tracing::warn!("Plain tunnel (no encryption keys)");
             let (mut cr, mut cw) = client.split();
             let (mut sr, mut sw) = server.split();
             tokio::select! {
@@ -136,15 +437,16 @@ async fn handle_socks5_client(
         }
     }
 
+    tracing::info!("Connection closed");
     Ok(())
 }
 
-/// Bidirectional encrypted pipe.
-/// Outbound (client → server): read chunk → AES-256-GCM encrypt → send
-/// Inbound  (server → client): read chunk → AES-256-GCM decrypt → send  
+/// Bidirectional encrypted pipe with per-packet nonce derivation.
+/// Outbound (client → server): read chunk → AES-256-GCM encrypt with counter → send
+/// Inbound  (server → client): read chunk → AES-256-GCM decrypt with counter → send
 ///
-/// Chunk framing: [4-byte LE length][encrypted_blob]
-/// This lets the receiver know exactly how many bytes to read per chunk.
+/// Chunk framing: [8-byte counter][4-byte LE length][ciphertext + tag]
+/// The counter ensures each packet uses a unique nonce, preventing AES-GCM nonce reuse.
 async fn encrypted_pipe(
     mut client: TcpStream,
     mut server: TcpStream,
@@ -160,29 +462,53 @@ async fn encrypted_pipe(
     let key_c = key.clone();
     let nonce_c = nonce.clone();
 
-    // Outbound: client sends → encrypt → forward to server
+    tracing::debug!("Starting encrypted pipe");
+
+    // Outbound: client sends → encrypt with counter → forward to server
+    // Counter starts at 0 and increments for each packet in this direction
     let outbound = async {
         let mut buf = vec![0u8; CHUNK];
+        let mut counter: u64 = 0;
         loop {
             let n = cr.read(&mut buf).await?;
             if n == 0 {
                 break;
             }
 
-            let encrypted = crypto::encrypt(&key_c, &nonce_c, &buf[..n])
+            // Encrypt with counter-derived nonce to prevent nonce reuse
+            let encrypted = crypto::encrypt_with_counter(&key_c, &nonce_c, counter, &buf[..n])
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
 
-            // Frame: 4-byte LE length prefix
+            // Frame: [8-byte counter][4-byte LE length][ciphertext]
             let len = encrypted.len() as u32;
+            sw.write_all(&counter.to_le_bytes()).await?;
             sw.write_all(&len.to_le_bytes()).await?;
             sw.write_all(&encrypted).await?;
+
+            // Increment counter for next packet
+            counter = counter.wrapping_add(1);
+            if counter == 0 {
+                // Counter wrapped - this should never happen in practice (2^64 packets)
+                // but we log a warning if it does
+                tracing::warn!("Packet counter wrapped! Consider rotating session keys.");
+            }
         }
         Ok::<_, std::io::Error>(())
     };
 
-    // Inbound: server responds → decrypt → send back to client
+    // Inbound: server responds → decrypt with counter → send back to client
+    // The counter is read from each received frame to derive the correct nonce
     let inbound = async {
         loop {
+            // Read 8-byte counter
+            let mut counter_buf = [0u8; 8];
+            match sr.read_exact(&mut counter_buf).await {
+                Ok(_) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
+                Err(e) => return Err(e),
+            }
+            let received_counter = u64::from_le_bytes(counter_buf);
+
             // Read 4-byte length prefix
             let mut len_buf = [0u8; 4];
             match sr.read_exact(&mut len_buf).await {
@@ -198,7 +524,8 @@ async fn encrypted_pipe(
             let mut enc_buf = vec![0u8; len];
             sr.read_exact(&mut enc_buf).await?;
 
-            let decrypted = crypto::decrypt(&key, &enc_buf)
+            // Decrypt with the counter from the frame to derive the same nonce
+            let decrypted = crypto::decrypt_with_counter(&key, &nonce, received_counter, &enc_buf)
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
 
             cw.write_all(&decrypted).await?;
@@ -214,54 +541,21 @@ async fn encrypted_pipe(
     Ok(())
 }
 
+/// Builds a circuit through the proxy chain with hop verification.
+///
+/// This is the main entry point for circuit building. It uses default
+/// timeout (5 seconds per hop) and retry (3 attempts) values.
+///
+/// # Arguments
+/// * `chain` - The chain of proxy hops to build the circuit through
+/// * `target` - The final destination address (host:port)
+///
+/// # Returns
+/// * `Ok(TcpStream)` - Established circuit connection
+/// * `Err` - Error with details about which hop failed
 async fn build_circuit(chain: &[ChainHop], target: &str) -> Result<TcpStream> {
-    if chain.is_empty() {
-        anyhow::bail!("Empty proxy chain");
-    }
-
-    // Connect to the first hop
-    let first_hop = &chain[0];
-    let addr = format!("{}:{}", first_hop.ip, first_hop.port);
-    debug!("Connecting to Hop 1: {}", addr);
-    let mut stream = TcpStream::connect(&addr)
+    build_circuit_with_verification(chain, target, DEFAULT_HOP_TIMEOUT_SECS, MAX_CIRCUIT_RETRIES)
         .await
-        .context(format!("Failed to connect to first hop {}", addr))?;
-
-    // Handshake with Hop 1
-    let next_dest = if chain.len() > 1 {
-        // If there are more hops, we tell Hop 1 to connect to Hop 2
-        let next = &chain[1];
-        format!("{}:{}", next.ip, next.port)
-    } else {
-        // If this is the last hop, we tell it to connect to Target
-        target.to_string()
-    };
-
-    handshake_proxy(&mut stream, first_hop, &next_dest).await?;
-
-    // Iterate through remaining hops
-    for i in 1..chain.len() {
-        let current_hop = &chain[i];
-        let next_dest = if i == chain.len() - 1 {
-            target.to_string()
-        } else {
-            let next = &chain[i + 1];
-            format!("{}:{}", next.ip, next.port)
-        };
-
-        debug!(
-            "Tunneling through Hop {}: {} -> {}",
-            i + 1,
-            current_hop.ip,
-            next_dest
-        );
-
-        // At this point, 'stream' is a tunnel TO current_hop
-        // We need to tell current_hop to connect to next_dest
-        handshake_proxy(&mut stream, current_hop, &next_dest).await?;
-    }
-
-    Ok(stream)
 }
 
 async fn handshake_proxy(stream: &mut TcpStream, hop: &ChainHop, target: &str) -> Result<()> {

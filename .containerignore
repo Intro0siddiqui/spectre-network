@@ -1,0 +1,20 @@
+# Source code (compiled on host before building image)
+src/
+*.rs
+*.go
+*.toml
+*.lock
+*.mod
+*.sum
+*.sh
+
+# Build artifacts
+target/debug/
+target/package/
+target/doc/
+
+# Dev/debug files
+*.log
+*.txt
+.gemini/
+.agents/
