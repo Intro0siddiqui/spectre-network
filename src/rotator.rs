@@ -1,6 +1,6 @@
+use crate::types::{ChainHop, ChainTopology, CryptoHop, Proxy, RotationDecision};
 use rand::prelude::*;
 use std::time::{SystemTime, UNIX_EPOCH};
-use crate::types::{Proxy, ChainHop, CryptoHop, RotationDecision, ChainTopology};
 
 fn now_unix() -> u64 {
     SystemTime::now()
@@ -34,18 +34,18 @@ pub fn derive_key_from_secret(master_secret: &[u8], chain_id: &str, hop_index: u
 
     // Salt: use chain_id to ensure different chains get different keys even with same master secret
     let salt = chain_id.as_bytes();
-    
+
     // Info: include hop index for per-hop key separation
     let info = format!("spectre-hop-{}", hop_index);
-    
+
     // Derive 32 bytes (256 bits) for AES-256
     let hkdf = Hkdf::<Sha256>::new(Some(salt), master_secret);
     let mut okm = [0u8; 32];
-    
+
     // Expand to get the output keying material
     hkdf.expand(info.as_bytes(), &mut okm)
         .expect("HKDF expand failed");
-    
+
     hex::encode(okm)
 }
 
@@ -63,17 +63,17 @@ pub fn derive_nonce_from_secret(master_secret: &[u8], chain_id: &str, hop_index:
 
     // Salt: use chain_id to ensure different chains get different nonces
     let salt = chain_id.as_bytes();
-    
+
     // Info: include hop index for per-hop nonce separation
     let info = format!("spectre-nonce-{}", hop_index);
-    
+
     // Derive 12 bytes for GCM nonce
     let hkdf = Hkdf::<Sha256>::new(Some(salt), master_secret);
     let mut okm = [0u8; 12];
-    
+
     hkdf.expand(info.as_bytes(), &mut okm)
         .expect("HKDF expand failed");
-    
+
     hex::encode(okm)
 }
 
@@ -85,7 +85,11 @@ pub fn derive_nonce_from_secret(master_secret: &[u8], chain_id: &str, hop_index:
 /// `num_hops`      — number of hops in the chain
 ///
 /// Returns a vector of CryptoHop with derived keys and nonces.
-pub fn generate_encryption_from_secret(master_secret: &[u8], chain_id: &str, num_hops: usize) -> Vec<CryptoHop> {
+pub fn generate_encryption_from_secret(
+    master_secret: &[u8],
+    chain_id: &str,
+    num_hops: usize,
+) -> Vec<CryptoHop> {
     (0..num_hops)
         .map(|i| {
             let key_hex = derive_key_from_secret(master_secret, chain_id, i);
@@ -102,19 +106,27 @@ pub fn generate_encryption_from_secret(master_secret: &[u8], chain_id: &str, num
 /// `master_secret` — shared secret for key derivation
 ///
 /// Returns a RotationDecision with regenerated encryption keys.
-pub fn reconstruct_decision_from_topology(topology: &ChainTopology, master_secret: &[u8]) -> RotationDecision {
-    let encryption = generate_encryption_from_secret(master_secret, &topology.chain_id, topology.hops.len());
-    
+pub fn reconstruct_decision_from_topology(
+    topology: &ChainTopology,
+    master_secret: &[u8],
+) -> RotationDecision {
+    let encryption =
+        generate_encryption_from_secret(master_secret, &topology.chain_id, topology.hops.len());
+
     // Reconstruct ChainHops from HopInfo (with placeholder values for non-topology fields)
-    let chain = topology.hops.iter().map(|h| ChainHop {
-        ip: h.ip.clone(),
-        port: h.port,
-        proto: h.proto.clone(),
-        country: String::new(),      // Not stored in topology
-        latency: 0.0,                // Not stored in topology
-        score: 0.0,                  // Not stored in topology
-    }).collect();
-    
+    let chain = topology
+        .hops
+        .iter()
+        .map(|h| ChainHop {
+            ip: h.ip.clone(),
+            port: h.port,
+            proto: h.proto.clone(),
+            country: String::new(), // Not stored in topology
+            latency: 0.0,           // Not stored in topology
+            score: 0.0,             // Not stored in topology
+        })
+        .collect();
+
     RotationDecision {
         mode: topology.mode.clone(),
         timestamp: topology.created_at,
@@ -127,7 +139,12 @@ pub fn reconstruct_decision_from_topology(topology: &ChainTopology, master_secre
     }
 }
 
-pub fn filter_mode_pool(mode: &str, dns: &[Proxy], non_dns: &[Proxy], combined: &[Proxy]) -> Vec<Proxy> {
+pub fn filter_mode_pool(
+    mode: &str,
+    dns: &[Proxy],
+    non_dns: &[Proxy],
+    combined: &[Proxy],
+) -> Vec<Proxy> {
     let mut pool = Vec::new();
     match mode {
         "lite" => {
@@ -233,7 +250,11 @@ fn weighted_random_choice<R: Rng>(
         let weights: Vec<f64> = available
             .iter()
             .map(|&idx| {
-                let score = if pool[idx].score > 0.0 { pool[idx].score } else { 0.5 };
+                let score = if pool[idx].score > 0.0 {
+                    pool[idx].score
+                } else {
+                    0.5
+                };
                 // Apply diversity exponent: higher exponent = flatter distribution
                 score.powf(1.0 / diversity_exponent)
             })
@@ -284,10 +305,7 @@ fn choose_chain_internal<R: Rng>(
         _ => (1, 1),
     };
 
-    let hops = rng
-        .gen_range(hops_min..=hops_max)
-        .min(pool.len())
-        .max(1);
+    let hops = rng.gen_range(hops_min..=hops_max).min(pool.len()).max(1);
 
     // Use weighted selection based on proxy scores
     // Diversity exponent of 1.5 provides a balance between preferring high scores
@@ -335,13 +353,26 @@ fn choose_chain_internal<R: Rng>(
         chain_id,
         chain,
         avg_latency,
-        min_score: if min_score.is_finite() { min_score } else { 0.0 },
-        max_score: if max_score.is_finite() { max_score } else { 0.0 },
+        min_score: if min_score.is_finite() {
+            min_score
+        } else {
+            0.0
+        },
+        max_score: if max_score.is_finite() {
+            max_score
+        } else {
+            0.0
+        },
         encryption: crypto,
     })
 }
 
-pub fn build_chain_decision(mode: &str, dns: &[Proxy], non_dns: &[Proxy], combined: &[Proxy]) -> Option<RotationDecision> {
+pub fn build_chain_decision(
+    mode: &str,
+    dns: &[Proxy],
+    non_dns: &[Proxy],
+    combined: &[Proxy],
+) -> Option<RotationDecision> {
     let pool = filter_mode_pool(mode, dns, non_dns, combined);
     if pool.is_empty() {
         return None;
@@ -358,7 +389,15 @@ mod tests {
     use rand::SeedableRng;
 
     /// Helper to create a test proxy
-    fn make_proxy(ip: &str, port: u16, proto: &str, latency: f64, country: &str, anonymity: &str, score: f64) -> Proxy {
+    fn make_proxy(
+        ip: &str,
+        port: u16,
+        proto: &str,
+        latency: f64,
+        country: &str,
+        anonymity: &str,
+        score: f64,
+    ) -> Proxy {
         Proxy {
             ip: ip.to_string(),
             port,
@@ -388,7 +427,15 @@ mod tests {
         // Lite mode includes all proxies
         let dns = vec![make_dns_proxy("192.168.1.1", 8080, "https", 0.8)];
         let non_dns = vec![make_non_dns_proxy("192.168.1.2", 8081, "http", 0.6)];
-        let combined = vec![make_proxy("192.168.1.3", 8082, "socks5", 100.0, "us", "elite", 0.7)];
+        let combined = vec![make_proxy(
+            "192.168.1.3",
+            8082,
+            "socks5",
+            100.0,
+            "us",
+            "elite",
+            0.7,
+        )];
 
         let pool = filter_mode_pool("lite", &dns, &non_dns, &combined);
 
@@ -413,9 +460,9 @@ mod tests {
     fn test_filter_mode_phantom_requires_minimum_score() {
         // Phantom mode filters low-score proxies
         let dns = vec![
-            make_dns_proxy("192.168.1.1", 8080, "https", 0.8),  // Above threshold
+            make_dns_proxy("192.168.1.1", 8080, "https", 0.8), // Above threshold
             make_dns_proxy("192.168.1.2", 8081, "socks5", 0.3), // Below threshold (0.4)
-            make_dns_proxy("192.168.1.3", 8082, "https", 0.5),  // Above threshold
+            make_dns_proxy("192.168.1.3", 8082, "https", 0.5), // Above threshold
         ];
         let non_dns: Vec<Proxy> = vec![];
         let combined: Vec<Proxy> = vec![];
@@ -482,7 +529,15 @@ mod tests {
         // Unknown mode should default to including all proxies
         let dns = vec![make_dns_proxy("192.168.1.1", 8080, "https", 0.8)];
         let non_dns = vec![make_non_dns_proxy("192.168.1.2", 8081, "http", 0.6)];
-        let combined = vec![make_proxy("192.168.1.3", 8082, "socks5", 100.0, "us", "elite", 0.7)];
+        let combined = vec![make_proxy(
+            "192.168.1.3",
+            8082,
+            "socks5",
+            100.0,
+            "us",
+            "elite",
+            0.7,
+        )];
 
         let pool = filter_mode_pool("unknown_mode", &dns, &non_dns, &combined);
 
@@ -507,25 +562,37 @@ mod tests {
         let lite_decision = build_chain_decision("lite", &dns, &non_dns, &combined);
         assert!(lite_decision.is_some());
         let lite = lite_decision.unwrap();
-        assert!(lite.chain.len() >= 1 && lite.chain.len() <= 1, "Lite mode should have 1 hop");
+        assert!(
+            lite.chain.len() >= 1 && lite.chain.len() <= 1,
+            "Lite mode should have 1 hop"
+        );
 
         // Test stealth mode (1-2 hops)
         let stealth_decision = build_chain_decision("stealth", &dns, &non_dns, &combined);
         assert!(stealth_decision.is_some());
         let stealth = stealth_decision.unwrap();
-        assert!(stealth.chain.len() >= 1 && stealth.chain.len() <= 2, "Stealth mode should have 1-2 hops");
+        assert!(
+            stealth.chain.len() >= 1 && stealth.chain.len() <= 2,
+            "Stealth mode should have 1-2 hops"
+        );
 
         // Test high mode (2-3 hops)
         let high_decision = build_chain_decision("high", &dns, &non_dns, &combined);
         assert!(high_decision.is_some());
         let high = high_decision.unwrap();
-        assert!(high.chain.len() >= 2 && high.chain.len() <= 3, "High mode should have 2-3 hops");
+        assert!(
+            high.chain.len() >= 2 && high.chain.len() <= 3,
+            "High mode should have 2-3 hops"
+        );
 
         // Test phantom mode (3-5 hops)
         let phantom_decision = build_chain_decision("phantom", &dns, &non_dns, &combined);
         assert!(phantom_decision.is_some());
         let phantom = phantom_decision.unwrap();
-        assert!(phantom.chain.len() >= 3 && phantom.chain.len() <= 5, "Phantom mode should have 3-5 hops");
+        assert!(
+            phantom.chain.len() >= 3 && phantom.chain.len() <= 5,
+            "Phantom mode should have 3-5 hops"
+        );
     }
 
     #[test]
@@ -573,7 +640,11 @@ mod tests {
 
         // Check that all encryption keys are valid 64-char hex (32 bytes)
         for crypto in &decision.encryption {
-            assert_eq!(crypto.key_hex.len(), 64, "Key should be 64 hex chars (32 bytes)");
+            assert_eq!(
+                crypto.key_hex.len(),
+                64,
+                "Key should be 64 hex chars (32 bytes)"
+            );
             assert!(
                 crypto.key_hex.chars().all(|c| c.is_ascii_hexdigit()),
                 "Key should be valid hex: {}",
@@ -583,7 +654,11 @@ mod tests {
 
         // Check that all nonces are valid 24-char hex (12 bytes)
         for crypto in &decision.encryption {
-            assert_eq!(crypto.nonce_hex.len(), 24, "Nonce should be 24 hex chars (12 bytes)");
+            assert_eq!(
+                crypto.nonce_hex.len(),
+                24,
+                "Nonce should be 24 hex chars (12 bytes)"
+            );
             assert!(
                 crypto.nonce_hex.chars().all(|c| c.is_ascii_hexdigit()),
                 "Nonce should be valid hex: {}",
@@ -604,7 +679,11 @@ mod tests {
         let decision = decision.unwrap();
 
         // Chain ID should be 32 hex chars (16 bytes)
-        assert_eq!(decision.chain_id.len(), 32, "Chain ID should be 32 hex chars");
+        assert_eq!(
+            decision.chain_id.len(),
+            32,
+            "Chain ID should be 32 hex chars"
+        );
         assert!(
             decision.chain_id.chars().all(|c| c.is_ascii_hexdigit()),
             "Chain ID should be valid hex"
@@ -687,8 +766,14 @@ mod tests {
         let nonce1 = derive_nonce_from_secret(master_secret, chain_id, 1);
         let nonce2 = derive_nonce_from_secret(master_secret, chain_id, 2);
 
-        assert_ne!(nonce0, nonce1, "Different hops should have different nonces");
-        assert_ne!(nonce1, nonce2, "Different hops should have different nonces");
+        assert_ne!(
+            nonce0, nonce1,
+            "Different hops should have different nonces"
+        );
+        assert_ne!(
+            nonce1, nonce2,
+            "Different hops should have different nonces"
+        );
     }
 
     #[test]
@@ -703,8 +788,18 @@ mod tests {
         assert_eq!(encryption.len(), num_hops);
 
         for (i, crypto) in encryption.iter().enumerate() {
-            assert_eq!(crypto.key_hex.len(), 64, "Hop {} key should be 64 hex chars", i);
-            assert_eq!(crypto.nonce_hex.len(), 24, "Hop {} nonce should be 24 hex chars", i);
+            assert_eq!(
+                crypto.key_hex.len(),
+                64,
+                "Hop {} key should be 64 hex chars",
+                i
+            );
+            assert_eq!(
+                crypto.nonce_hex.len(),
+                24,
+                "Hop {} nonce should be 24 hex chars",
+                i
+            );
         }
     }
 
@@ -781,7 +876,10 @@ mod tests {
         let decision = decision.unwrap();
 
         // Verify avg_latency is reasonable
-        assert!(decision.avg_latency > 0.0, "Average latency should be positive");
+        assert!(
+            decision.avg_latency > 0.0,
+            "Average latency should be positive"
+        );
 
         // Verify min/max scores are within expected range
         assert!(decision.min_score >= 0.0 && decision.min_score <= 1.0);
@@ -818,7 +916,10 @@ mod tests {
         }
 
         // Over many iterations, should have selected from multiple proxies
-        assert!(all_selected_indices.len() >= 3, "Should show diversity in selection");
+        assert!(
+            all_selected_indices.len() >= 3,
+            "Should show diversity in selection"
+        );
     }
 
     #[test]

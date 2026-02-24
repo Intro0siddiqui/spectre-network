@@ -287,12 +287,16 @@ func scrapeProxyScrapeLive(ctx context.Context, limit int, ch chan<- []Proxy) {
 }
 
 func scrapeProxyDaily(ctx context.Context, limit int, ch chan<- []Proxy) { ch <- nil }
-func scrapeSpysOne(ctx context.Context, limit int, ch chan<- []Proxy) { ch <- nil }
-func scrapeProxyNova(ctx context.Context, limit int, ch chan<- []Proxy) { ch <- nil }
-func scrapeOpenProxy(ctx context.Context, limit int, ch chan<- []Proxy) { ch <- nil }
-func scrapeProxyListDownload(ctx context.Context, protocol string, limit int, ch chan<- []Proxy) { ch <- nil }
+func scrapeSpysOne(ctx context.Context, limit int, ch chan<- []Proxy)    { ch <- nil }
+func scrapeProxyNova(ctx context.Context, limit int, ch chan<- []Proxy)  { ch <- nil }
+func scrapeOpenProxy(ctx context.Context, limit int, ch chan<- []Proxy)  { ch <- nil }
+func scrapeProxyListDownload(ctx context.Context, protocol string, limit int, ch chan<- []Proxy) {
+	ch <- nil
+}
 func scrapeHideMyName(ctx context.Context, limit int, ch chan<- []Proxy) { ch <- nil }
-func scrapeFreeProxyWorld(ctx context.Context, protocol string, limit int, ch chan<- []Proxy) { ch <- nil }
+func scrapeFreeProxyWorld(ctx context.Context, protocol string, limit int, ch chan<- []Proxy) {
+	ch <- nil
+}
 func scrapeMoreGitHubProxies(ctx context.Context, limit int, ch chan<- []Proxy) { ch <- nil }
 
 func validateProxy(p Proxy, ch chan<- Proxy) {
@@ -320,20 +324,32 @@ func main() {
 
 	sources := 0
 	if *protocol == "all" || *protocol == "http" {
-		go scrapeProxyScrape(ctx, "http", *limit, ch); sources++
-		go scrapeGitHubProxyLists(ctx, "thespeedx", *limit, ch); sources++
-		go scrapeGitHubProxyLists(ctx, "monosans", *limit, ch); sources++
-		go scrapeVakhov(ctx, *limit, ch); sources++
-		go scrapeFreeProxyList(ctx, *limit, ch); sources++
-		go scrapeGeoNodeAPI(ctx, "http", *limit, ch); sources++
+		go scrapeProxyScrape(ctx, "http", *limit, ch)
+		sources++
+		go scrapeGitHubProxyLists(ctx, "thespeedx", *limit, ch)
+		sources++
+		go scrapeGitHubProxyLists(ctx, "monosans", *limit, ch)
+		sources++
+		go scrapeVakhov(ctx, *limit, ch)
+		sources++
+		go scrapeFreeProxyList(ctx, *limit, ch)
+		sources++
+		go scrapeGeoNodeAPI(ctx, "http", *limit, ch)
+		sources++
 	}
 	if *protocol == "all" || *protocol == "socks5" {
-		go scrapeProxyScrape(ctx, "socks5", *limit, ch); sources++
-		go scrapeHookzof(ctx, *limit, ch); sources++
-		go scrapeIplocate(ctx, *limit, ch); sources++
-		go scrapeKomutan(ctx, *limit, ch); sources++
-		go scrapeProxifly(ctx, *limit, ch); sources++
-		go scrapeGeoNodeAPI(ctx, "socks5", *limit, ch); sources++
+		go scrapeProxyScrape(ctx, "socks5", *limit, ch)
+		sources++
+		go scrapeHookzof(ctx, *limit, ch)
+		sources++
+		go scrapeIplocate(ctx, *limit, ch)
+		sources++
+		go scrapeKomutan(ctx, *limit, ch)
+		sources++
+		go scrapeProxifly(ctx, *limit, ch)
+		sources++
+		go scrapeGeoNodeAPI(ctx, "socks5", *limit, ch)
+		sources++
 	}
 
 	allProxies := []Proxy{}

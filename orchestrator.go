@@ -1,7 +1,7 @@
 package main
 
 /*
-#cgo LDFLAGS: -L./target/release -Wl,-rpath=./target/release -lrotator_rs -ldl -lm
+#cgo LDFLAGS: -L./target/release -lrotator_rs -ldl -lm -lpthread
 #include <stdlib.h>
 
 extern char* run_polish_c(const char* raw_json);
@@ -423,9 +423,9 @@ func cmdStats(workspace string) {
 
 // spectre audit
 // Runs a self-contained Podman security probe:
-//   1. Starts the SOCKS5 chain inside the container
-//   2. Runs spectre-audit to test IP/DNS/header/IPv6/TLS leaks
-//   3. Prints a security scorecard (A+ → F)
+//  1. Starts the SOCKS5 chain inside the container
+//  2. Runs spectre-audit to test IP/DNS/header/IPv6/TLS leaks
+//  3. Prints a security scorecard (A+ → F)
 func cmdAudit() {
 	fmt.Println(col(bold, "\n=== Spectre Security Audit ==="))
 
@@ -581,7 +581,7 @@ func buildChainDecision(mode string, dns, nonDNS, combined []Proxy) (*RotationDe
 	if !validateMode(mode) {
 		return nil, fmt.Errorf("invalid mode: %s (allowed: lite, stealth, high, phantom)", mode)
 	}
-	
+
 	cMode := C.CString(mode)
 	defer C.free(unsafe.Pointer(cMode))
 

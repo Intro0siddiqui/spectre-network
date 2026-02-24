@@ -14,18 +14,18 @@ A self-contained, adversarial proxy mesh. Farms its own proxy pool, scores and f
 | Tunnel | Rust (tokio) | SOCKS5 server with per-connection AES-256-GCM encryption |
 | Audit | Go | Containerised adversarial leak testing (9-test suite) |
 
-The Go orchestrator (`orchestrator.go`) is the primary `spectre` binary. It calls into the compiled Rust shared library (`librotator_rs.so`) via CGO/FFI for all core logic (polishing, chain building, and serving), and shells out to the Go scraper binary (`go_scraper`) for proxy collection.
+The Go orchestrator (`orchestrator.go`) is the primary `spectre` binary. It is statically linked against the compiled Rust library (`librotator_rs.a`) via CGO/FFI for all core logic (polishing, chain building, and serving), resulting in a single standalone executable. It shells out to the Go scraper binary (`go_scraper`) for proxy collection.
 
 ---
 
 ## Build
 
 ```bash
-# 1. Build the Rust engine (shared library + standalone binary)
-PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 cargo build --release
+# 1. Build the Rust engine (creates static library librotator_rs.a)
+cargo build --release
 
-# 2. Build the Go orchestrator (links against librotator_rs.so via CGO)
-CGO_ENABLED=1 go build -o spectre orchestrator.go
+# 2. Build the Go orchestrator (statically links librotator_rs.a for a single standalone binary)
+CGO_ENABLED=1 go build -ldflags="-s -w" -o spectre orchestrator.go
 
 # 3. Build the Go scraper
 go build -o go_scraper go_scraper.go

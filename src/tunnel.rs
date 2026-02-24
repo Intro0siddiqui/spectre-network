@@ -515,7 +515,7 @@ async fn encrypted_pipe(
 
             // Encrypt with counter-derived nonce to prevent nonce reuse
             let encrypted = crypto::encrypt_with_counter(&key_c, &nonce_c, counter, &buf[..n])
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+                .map_err(|e| std::io::Error::other(e))?;
 
             // Frame: [8-byte counter][4-byte LE length][ciphertext]
             let len = encrypted.len() as u32;
@@ -564,7 +564,7 @@ async fn encrypted_pipe(
 
             // Decrypt with the counter from the frame to derive the same nonce
             let decrypted = crypto::decrypt_with_counter(&key, &nonce, received_counter, &enc_buf)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+                .map_err(|e| std::io::Error::other(e))?;
 
             cw.write_all(&decrypted).await?;
         }
@@ -644,8 +644,9 @@ pub async fn handshake_proxy(stream: &mut TcpStream, hop: &ChainHop, target: &st
                 Ok::<(), anyhow::Error>(())
             };
 
-            if let Err(_) =
-                tokio::time::timeout(std::time::Duration::from_secs(5), socks_future).await
+            if tokio::time::timeout(std::time::Duration::from_secs(5), socks_future)
+                .await
+                .is_err()
             {
                 anyhow::bail!("SOCKS5 handshake timeout on {}", hop.ip);
             }
@@ -684,8 +685,9 @@ pub async fn handshake_proxy(stream: &mut TcpStream, hop: &ChainHop, target: &st
                 Ok::<(), anyhow::Error>(())
             };
 
-            if let Err(_) =
-                tokio::time::timeout(std::time::Duration::from_secs(3), read_future).await
+            if tokio::time::timeout(std::time::Duration::from_secs(3), read_future)
+                .await
+                .is_err()
             {
                 anyhow::bail!("HTTP CONNECT read timeout on {}", hop.ip);
             }

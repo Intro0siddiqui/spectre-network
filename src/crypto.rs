@@ -40,7 +40,12 @@ pub fn derive_nonce(base_nonce: &[u8], counter: u64) -> [u8; 12] {
 ///
 /// Returns `[ciphertext + tag]` — the nonce is derived from counter, not transmitted.
 /// The receiver must use the same counter value to derive the same nonce for decryption.
-pub fn encrypt_with_counter(key_hex: &str, nonce_hex: &str, counter: u64, plaintext: &[u8]) -> Result<Vec<u8>> {
+pub fn encrypt_with_counter(
+    key_hex: &str,
+    nonce_hex: &str,
+    counter: u64,
+    plaintext: &[u8],
+) -> Result<Vec<u8>> {
     let key_bytes = hex::decode(key_hex).context("bad key hex")?;
     let base_nonce_bytes = hex::decode(nonce_hex).context("bad nonce hex")?;
 
@@ -65,7 +70,12 @@ pub fn encrypt_with_counter(key_hex: &str, nonce_hex: &str, counter: u64, plaint
 /// `data`      — ciphertext + tag (no nonce prefix, as it's derived from counter)
 ///
 /// Returns the decrypted plaintext.
-pub fn decrypt_with_counter(key_hex: &str, nonce_hex: &str, counter: u64, data: &[u8]) -> Result<Vec<u8>> {
+pub fn decrypt_with_counter(
+    key_hex: &str,
+    nonce_hex: &str,
+    counter: u64,
+    data: &[u8],
+) -> Result<Vec<u8>> {
     let key_bytes = hex::decode(key_hex).context("bad key hex")?;
     let base_nonce_bytes = hex::decode(nonce_hex).context("bad nonce hex")?;
 
@@ -172,7 +182,12 @@ mod tests {
             let decrypted = decrypt_with_counter(&key, &nonce, counter, &encrypted)
                 .expect("Decryption should succeed");
 
-            assert_eq!(decrypted, plaintext.as_slice(), "Roundtrip failed for counter {}", counter);
+            assert_eq!(
+                decrypted,
+                plaintext.as_slice(),
+                "Roundtrip failed for counter {}",
+                counter
+            );
         }
     }
 
@@ -192,7 +207,10 @@ mod tests {
         let encrypted2 = encrypt(&key, &nonce2, plaintext).expect("Encryption 2 should succeed");
 
         // Ciphertexts should be different (including the prepended nonce)
-        assert_ne!(encrypted1, encrypted2, "Different nonces should produce different ciphertexts");
+        assert_ne!(
+            encrypted1, encrypted2,
+            "Different nonces should produce different ciphertexts"
+        );
 
         // Verify both can be decrypted correctly
         let decrypted1 = decrypt(&key, &encrypted1).expect("Decryption 1 should succeed");
@@ -205,7 +223,9 @@ mod tests {
     #[test]
     fn test_nonce_derivation_with_counter() {
         // Test the counter-based nonce derivation
-        let base_nonce = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C];
+        let base_nonce = [
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C,
+        ];
 
         // Counter 0 should XOR with zeros (no change to first 4 bytes, last 8 XORed with 0)
         let derived_0 = derive_nonce(&base_nonce, 0);
@@ -213,12 +233,21 @@ mod tests {
 
         // Counter 1 should change the last bytes
         let derived_1 = derive_nonce(&base_nonce, 1);
-        assert_ne!(derived_0, derived_1, "Counter 1 should produce different nonce");
+        assert_ne!(
+            derived_0, derived_1,
+            "Counter 1 should produce different nonce"
+        );
 
         // Counter 2 should be different from both
         let derived_2 = derive_nonce(&base_nonce, 2);
-        assert_ne!(derived_0, derived_2, "Counter 2 should produce different nonce");
-        assert_ne!(derived_1, derived_2, "Counter 2 should differ from counter 1");
+        assert_ne!(
+            derived_0, derived_2,
+            "Counter 2 should produce different nonce"
+        );
+        assert_ne!(
+            derived_1, derived_2,
+            "Counter 2 should differ from counter 1"
+        );
 
         // Verify first 4 bytes remain unchanged (counter XORed into last 8)
         assert_eq!(derived_0[..4], base_nonce[..4]);
@@ -229,7 +258,10 @@ mod tests {
         let derived_256 = derive_nonce(&base_nonce, 256);
         // 256 in little-endian is [0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
         // So byte at position 4+1 should be XORed with 0x01
-        assert_ne!(derived_256, derived_0, "Counter 256 should produce different nonce");
+        assert_ne!(
+            derived_256, derived_0,
+            "Counter 256 should produce different nonce"
+        );
     }
 
     #[test]
@@ -246,13 +278,19 @@ mod tests {
 
         // Decrypting with wrong key should fail (GCM authentication check)
         let decrypt_result = decrypt(&key2, &encrypted);
-        assert!(decrypt_result.is_err(), "Decryption with wrong key should fail");
+        assert!(
+            decrypt_result.is_err(),
+            "Decryption with wrong key should fail"
+        );
 
         // Also test with counter mode
         let encrypted_counter = encrypt_with_counter(&key1, &nonce, 0, plaintext)
             .expect("Counter encryption should succeed");
         let decrypt_counter_result = decrypt_with_counter(&key2, &nonce, 0, &encrypted_counter);
-        assert!(decrypt_counter_result.is_err(), "Counter decryption with wrong key should fail");
+        assert!(
+            decrypt_counter_result.is_err(),
+            "Counter decryption with wrong key should fail"
+        );
     }
 
     #[test]
@@ -271,7 +309,10 @@ mod tests {
         }
 
         let decrypt_result = decrypt(&key, &tampered);
-        assert!(decrypt_result.is_err(), "Tampered ciphertext should fail authentication");
+        assert!(
+            decrypt_result.is_err(),
+            "Tampered ciphertext should fail authentication"
+        );
 
         // Also test with counter mode
         let encrypted_counter = encrypt_with_counter(&key, &nonce, 0, plaintext)
@@ -283,7 +324,10 @@ mod tests {
         }
 
         let decrypt_counter_result = decrypt_with_counter(&key, &nonce, 0, &tampered_counter);
-        assert!(decrypt_counter_result.is_err(), "Tampered counter ciphertext should fail");
+        assert!(
+            decrypt_counter_result.is_err(),
+            "Tampered counter ciphertext should fail"
+        );
     }
 
     #[test]
@@ -320,7 +364,11 @@ mod tests {
 
         for counter in 0..1000u64 {
             let derived = derive_nonce(&base_nonce, counter);
-            assert!(derived_nonces.insert(derived), "Nonce collision at counter {}", counter);
+            assert!(
+                derived_nonces.insert(derived),
+                "Nonce collision at counter {}",
+                counter
+            );
         }
     }
 

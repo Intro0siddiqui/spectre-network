@@ -5,7 +5,7 @@ edition = "2021"
 
 [lib]
 name = "rotator_rs"
-crate-type = ["cdylib", "rlib"]
+crate-type = ["staticlib", "cdylib", "rlib"]
 path = "src/lib.rs"
 
 [[bin]]

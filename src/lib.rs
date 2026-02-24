@@ -1,3 +1,5 @@
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
+
 #[cfg(feature = "python")]
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 #[cfg(feature = "python")]
