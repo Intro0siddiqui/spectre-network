@@ -104,7 +104,11 @@ pub fn calculate_scores(mut proxies: Vec<Proxy>) -> Vec<Proxy> {
     }
 
     // Sort descending
-    proxies.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    proxies.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     proxies
 }
 
@@ -113,7 +117,13 @@ pub fn split_proxy_pools(proxies: Vec<Proxy>) -> (Vec<Proxy>, Vec<Proxy>) {
     let mut non_dns = Vec::new();
 
     for p in proxies {
-        if DNS_CAPABLE_TYPES.contains(p.proto.to_lowercase().as_str()) {
+        let proto = p.proto.to_lowercase();
+        // Skip SOCKS4 as it's outdated and doesn't support DNS resolution via proxy
+        if proto == "socks4" {
+            continue;
+        }
+
+        if DNS_CAPABLE_TYPES.contains(proto.as_str()) {
             dns.push(p);
         } else {
             non_dns.push(p);
@@ -127,7 +137,14 @@ mod tests {
     use super::*;
 
     /// Helper to create a test proxy
-    fn make_proxy(ip: &str, port: u16, proto: &str, latency: f64, country: &str, anonymity: &str) -> Proxy {
+    fn make_proxy(
+        ip: &str,
+        port: u16,
+        proto: &str,
+        latency: f64,
+        country: &str,
+        anonymity: &str,
+    ) -> Proxy {
         Proxy {
             ip: ip.to_string(),
             port,
@@ -189,7 +206,7 @@ mod tests {
         // High latency proxy should get low latency score
         let proxies = vec![
             make_proxy("192.168.1.1", 8080, "http", 1000.0, "us", "elite"), // High latency
-            make_proxy("192.168.1.2", 8081, "http", 50.0, "us", "elite"),    // Low latency
+            make_proxy("192.168.1.2", 8081, "http", 50.0, "us", "elite"),   // Low latency
         ];
 
         let scored = calculate_scores(proxies);
@@ -211,14 +228,17 @@ mod tests {
     fn test_score_calculation_low_latency() {
         // Low latency proxy should get high latency score
         let proxies = vec![
-            make_proxy("192.168.1.1", 8080, "http", 10.0, "us", "elite"),    // Very low latency
-            make_proxy("192.168.1.2", 8081, "http", 500.0, "us", "elite"),   // High latency
+            make_proxy("192.168.1.1", 8080, "http", 10.0, "us", "elite"), // Very low latency
+            make_proxy("192.168.1.2", 8081, "http", 500.0, "us", "elite"), // High latency
         ];
 
         let scored = calculate_scores(proxies);
 
         // The lowest latency proxy should be first (sorted by score descending)
-        assert_eq!(scored[0].latency, 10.0, "Lowest latency proxy should have highest score");
+        assert_eq!(
+            scored[0].latency, 10.0,
+            "Lowest latency proxy should have highest score"
+        );
         assert!(scored[0].score > scored[1].score);
     }
 
@@ -236,23 +256,35 @@ mod tests {
 
         let elite = scored.iter().find(|p| p.anonymity == "elite").unwrap();
         let anonymous = scored.iter().find(|p| p.anonymity == "anonymous").unwrap();
-        let transparent = scored.iter().find(|p| p.anonymity == "transparent").unwrap();
+        let transparent = scored
+            .iter()
+            .find(|p| p.anonymity == "transparent")
+            .unwrap();
         let empty = scored.iter().find(|p| p.anonymity == "").unwrap();
 
         // Verify anonymity scoring order (with same latency, elite should score highest)
-        assert!(elite.score > anonymous.score, "Elite should score higher than anonymous");
-        assert!(anonymous.score > transparent.score, "Anonymous should score higher than transparent");
-        assert!(transparent.score > empty.score, "Transparent should score higher than empty");
+        assert!(
+            elite.score > anonymous.score,
+            "Elite should score higher than anonymous"
+        );
+        assert!(
+            anonymous.score > transparent.score,
+            "Anonymous should score higher than transparent"
+        );
+        assert!(
+            transparent.score > empty.score,
+            "Transparent should score higher than empty"
+        );
     }
 
     #[test]
     fn test_country_bonus() {
         // Preferred countries get bonus
         let proxies = vec![
-            make_proxy("192.168.1.1", 8080, "http", 100.0, "us", "elite"),   // Preferred
-            make_proxy("192.168.1.2", 8081, "http", 100.0, "de", "elite"),   // Preferred
-            make_proxy("192.168.1.3", 8082, "http", 100.0, "nl", "elite"),   // Preferred
-            make_proxy("192.168.1.4", 8083, "http", 100.0, "xx", "elite"),   // Not preferred
+            make_proxy("192.168.1.1", 8080, "http", 100.0, "us", "elite"), // Preferred
+            make_proxy("192.168.1.2", 8081, "http", 100.0, "de", "elite"), // Preferred
+            make_proxy("192.168.1.3", 8082, "http", 100.0, "nl", "elite"), // Preferred
+            make_proxy("192.168.1.4", 8083, "http", 100.0, "xx", "elite"), // Not preferred
             make_proxy("192.168.1.5", 8084, "http", 100.0, "unknown", "elite"), // Not preferred
         ];
 
@@ -278,10 +310,24 @@ mod tests {
 
         let mut proxies = Vec::new();
         for (i, country) in preferred.iter().enumerate() {
-            proxies.push(make_proxy(&format!("192.168.1.{}", i + 1), 8080, "http", 100.0, country, "elite"));
+            proxies.push(make_proxy(
+                &format!("192.168.1.{}", i + 1),
+                8080,
+                "http",
+                100.0,
+                country,
+                "elite",
+            ));
         }
         for (i, country) in non_preferred.iter().enumerate() {
-            proxies.push(make_proxy(&format!("192.168.2.{}", i + 1), 8080, "http", 100.0, country, "elite"));
+            proxies.push(make_proxy(
+                &format!("192.168.2.{}", i + 1),
+                8080,
+                "http",
+                100.0,
+                country,
+                "elite",
+            ));
         }
 
         let scored = calculate_scores(proxies);
@@ -298,10 +344,19 @@ mod tests {
             .map(|p| p.score)
             .collect();
 
-        let min_preferred = preferred_scores.iter().cloned().fold(f64::INFINITY, f64::min);
-        let max_non_preferred = non_preferred_scores.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min_preferred = preferred_scores
+            .iter()
+            .cloned()
+            .fold(f64::INFINITY, f64::min);
+        let max_non_preferred = non_preferred_scores
+            .iter()
+            .cloned()
+            .fold(f64::NEG_INFINITY, f64::max);
 
-        assert!(min_preferred > max_non_preferred, "All preferred countries should score higher");
+        assert!(
+            min_preferred > max_non_preferred,
+            "All preferred countries should score higher"
+        );
     }
 
     #[test]
@@ -322,8 +377,14 @@ mod tests {
         let http = scored.iter().find(|p| p.proto == "http").unwrap();
 
         // socks5 and https get DNS bonus (1.2x), so should score higher
-        assert!(socks5.score > http.score, "SOCKS5 should score higher than HTTP");
-        assert!(https.score > http.score, "HTTPS should score higher than HTTP");
+        assert!(
+            socks5.score > http.score,
+            "SOCKS5 should score higher than HTTP"
+        );
+        assert!(
+            https.score > http.score,
+            "HTTPS should score higher than HTTP"
+        );
     }
 
     #[test]
@@ -350,14 +411,17 @@ mod tests {
     fn test_weighted_selection_prefers_high_score() {
         // Higher score proxies should appear first after sorting
         let proxies = vec![
-            make_proxy("192.168.1.1", 8080, "socks5", 10.0, "us", "elite"),    // Best: low latency, elite, preferred country, DNS-capable
+            make_proxy("192.168.1.1", 8080, "socks5", 10.0, "us", "elite"), // Best: low latency, elite, preferred country, DNS-capable
             make_proxy("192.168.1.2", 8081, "http", 500.0, "xx", "transparent"), // Worst: high latency, transparent, non-preferred
         ];
 
         let scored = calculate_scores(proxies);
 
         // After calculate_scores, proxies are sorted by score descending
-        assert!(scored[0].score > scored[1].score, "Higher score proxy should be first");
+        assert!(
+            scored[0].score > scored[1].score,
+            "Higher score proxy should be first"
+        );
         assert_eq!(scored[0].ip, "192.168.1.1", "Best proxy should be first");
     }
 
@@ -370,7 +434,14 @@ mod tests {
 
     #[test]
     fn test_calculate_scores_single_proxy() {
-        let proxies = vec![make_proxy("192.168.1.1", 8080, "http", 100.0, "us", "elite")];
+        let proxies = vec![make_proxy(
+            "192.168.1.1",
+            8080,
+            "http",
+            100.0,
+            "us",
+            "elite",
+        )];
         let scored = calculate_scores(proxies);
         assert_eq!(scored.len(), 1);
         assert!(scored[0].score > 0.0);
@@ -407,10 +478,10 @@ mod tests {
         assert!(dns.iter().any(|p| p.proto == "https"));
         assert!(dns.iter().any(|p| p.proto == "socks5"));
 
-        // Non-DNS: http, socks4
-        assert_eq!(non_dns.len(), 2);
+        // Non-DNS: http (socks4 is filtered out)
+        assert_eq!(non_dns.len(), 1);
         assert!(non_dns.iter().any(|p| p.proto == "http"));
-        assert!(non_dns.iter().any(|p| p.proto == "socks4"));
+        assert!(!non_dns.iter().any(|p| p.proto == "socks4"));
     }
 
     #[test]
@@ -444,7 +515,10 @@ mod tests {
 
         // All US variants should score higher than XX
         for score in us_scores {
-            assert!(score > xx_score, "US (any case) should score higher than XX");
+            assert!(
+                score > xx_score,
+                "US (any case) should score higher than XX"
+            );
         }
     }
 

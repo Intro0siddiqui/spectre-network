@@ -5,10 +5,11 @@ package main
 #include <stdlib.h>
 
 extern char* run_polish_c(const char* raw_json);
+extern char* run_verify_c(const char* proxies_json);
 extern char* build_chain_decision_c(const char* mode, const char* dns_json, const char* non_dns_json, const char* combined_json);
 extern char* build_chain_topology_c(const char* mode, const char* dns_json, const char* non_dns_json, const char* combined_json);
 extern char* derive_keys_from_secret_c(const char* master_secret, const char* chain_id, int num_hops);
-extern int start_spectre_server_c(unsigned short port, const char* decision_json);
+extern int start_spectre_server_c(unsigned short port, const char* decision_json, const char* dns_json, const char* non_dns_json, const char* combined_json);
 extern void free_c_string(char* s);
 */
 import "C"
@@ -293,15 +294,57 @@ func cmdRefresh(workspace, mode string, limit int, protocol string) {
 	stored := loadProxies(combinedPath)
 	fmt.Printf("%s Loaded %d stored proxies. Verifying liveness (this takes a moment)...\n", col(cyan, "◈"), len(stored))
 
-	// Verification is done inside the Rust binary (--step refresh) for robustness
-	// orchestrator.go triggers the Rust binary with --step refresh
-	rustBin := filepath.Join(workspace, "target/release/spectre")
-	c := exec.Command(rustBin, "--step", "refresh", "--mode", mode, "--limit", fmt.Sprintf("%d", limit), "--protocol", protocol)
-	c.Stdout = os.Stdout
-	c.Stderr = os.Stderr
-	if err := c.Run(); err != nil {
-		log.Fatalf("%s refresh failed: %v", col(red, "✗"), err)
+	dns, nonDNS, combined, err := runVerify(workspace, stored)
+	if err != nil {
+		log.Fatalf("%s Verify failed: %v", col(red, "✗"), err)
 	}
+
+	fmt.Printf("%s Pool: %s total | %s DNS-capable | %s non-DNS\n",
+		col(green, "✓"),
+		col(bold, fmt.Sprintf("%d", len(combined))),
+		col(bold, fmt.Sprintf("%d", len(dns))),
+		col(bold, fmt.Sprintf("%d", len(nonDNS))))
+
+	decision, err := buildChainDecision(mode, dns, nonDNS, combined)
+	if err != nil || decision == nil {
+		log.Fatalf("%s Could not rebuild chain for mode %q", col(red, "✗"), mode)
+	}
+	printChain(decision)
+}
+
+func runVerify(workspace string, proxies []Proxy) (dns, nonDNS, combined []Proxy, err error) {
+	// We verify in batches of 500 to avoid CGO deadlocks with excessively large JSON/tasks
+	batchSize := 500
+	var verified []Proxy
+
+	for i := 0; i < len(proxies); i += batchSize {
+		end := i + batchSize
+		if end > len(proxies) {
+			end = len(proxies)
+		}
+		batch := proxies[i:end]
+		fmt.Printf("  %s Verifying batch %d/%d...\n", col(dim, "→"), (i/batchSize)+1, (len(proxies)/batchSize)+1)
+
+		batchJSON, _ := json.Marshal(batch)
+		cRaw := C.CString(string(batchJSON))
+		cOut := C.run_verify_c(cRaw)
+		C.free(unsafe.Pointer(cRaw))
+
+		if cOut == nil {
+			return nil, nil, nil, fmt.Errorf("rust verifier returned null for batch starting at %d", i)
+		}
+
+		var batchResult []Proxy
+		if err := json.Unmarshal([]byte(C.GoString(cOut)), &batchResult); err != nil {
+			C.free_c_string(cOut)
+			return nil, nil, nil, fmt.Errorf("parse verify result: %v", err)
+		}
+		C.free_c_string(cOut)
+		verified = append(verified, batchResult...)
+	}
+
+	// Re-run polish on verified proxies to update pools and scores
+	return runPolish(workspace, verified)
 }
 
 // spectre rotate [--mode ...]
@@ -332,13 +375,25 @@ func cmdServe(workspace, mode string, port int) {
 	}
 	printChain(decision)
 
-	fmt.Printf("%s Starting SOCKS5 server on port %d...\n", col(green, "✓"), port)
+	fmt.Printf("%s Starting SOCKS5 server on port %d with live rotation...\n", col(green, "✓"), port)
 
 	decisionJSON, _ := json.Marshal(decision)
 	cDecision := C.CString(string(decisionJSON))
 	defer C.free(unsafe.Pointer(cDecision))
 
-	res := C.start_spectre_server_c(C.ushort(port), cDecision)
+	dnsJSON, _ := json.Marshal(dns)
+	cDNS := C.CString(string(dnsJSON))
+	defer C.free(unsafe.Pointer(cDNS))
+
+	nonDNSJSON, _ := json.Marshal(nonDNS)
+	cNonDNS := C.CString(string(nonDNSJSON))
+	defer C.free(unsafe.Pointer(cNonDNS))
+
+	combinedJSON, _ := json.Marshal(combined)
+	cCombined := C.CString(string(combinedJSON))
+	defer C.free(unsafe.Pointer(cCombined))
+
+	res := C.start_spectre_server_c(C.ushort(port), cDecision, cDNS, cNonDNS, cCombined)
 	if res != 0 {
 		log.Fatalf("%s Server failed with exit code: %d", col(red, "✗"), res)
 	}

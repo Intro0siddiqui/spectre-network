@@ -86,7 +86,7 @@ async fn main() -> Result<()> {
             let decision = rotator::build_chain_decision(&cli.mode, &dns, &non_dns, &combined);
             if let Some(d) = decision {
                 print_decision(&d);
-                tunnel::start_socks_server(cli.port, d).await?;
+                tunnel::start_socks_server(cli.port, d, dns, non_dns, combined).await?;
             } else {
                 error!("Failed to build chain. Run 'full' or 'scrape' first to populate pools.");
             }

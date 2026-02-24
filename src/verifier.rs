@@ -1,4 +1,5 @@
-use crate::types::Proxy;
+use crate::tunnel;
+use crate::types::{ChainHop, Proxy};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::net::TcpStream;
@@ -7,7 +8,7 @@ use tokio::time::timeout;
 use tracing::{debug, error, info};
 
 const MAX_FAIL_COUNT: u32 = 3;
-const DEFAULT_TIMEOUT_SECS: u64 = 5;
+const DEFAULT_TIMEOUT_SECS: u64 = 8; // Slightly longer for handshakes
 const MIN_POOL_SIZE: usize = 30;
 /// Maximum number of concurrent verification tasks to prevent resource exhaustion.
 /// This limits file descriptor usage and avoids triggering rate limits on proxies.
@@ -20,28 +21,64 @@ fn now_unix() -> u64 {
         .as_secs()
 }
 
-/// Attempt a TCP connection to the proxy's ip:port and measure latency.
-/// Returns (alive, latency_secs).
-async fn probe_proxy(ip: &str, port: u16, timeout_secs: u64) -> (bool, f64) {
-    let addr = format!("{}:{}", ip, port);
+/// Deep verify proxy using protocol-aware handshake
+async fn deep_probe_proxy(proxy: &Proxy, timeout_secs: u64) -> (bool, f64) {
+    let addr = format!("{}:{}", proxy.ip, proxy.port);
     let start = std::time::Instant::now();
-    let result = timeout(Duration::from_secs(timeout_secs), TcpStream::connect(&addr)).await;
+    let timeout_duration = Duration::from_secs(timeout_secs);
 
-    match result {
+    // Initial TCP connect
+    let mut stream = match timeout(timeout_duration, TcpStream::connect(&addr)).await {
+        Ok(Ok(s)) => s,
+        _ => {
+            debug!(proxy_addr = %addr, "Proxy deep probe TCP failed/timed out");
+            return (false, 0.0);
+        }
+    };
+
+    // Check protocol handshake.
+    let hop = ChainHop {
+        ip: proxy.ip.clone(),
+        port: proxy.port,
+        proto: proxy.proto.clone(),
+        country: proxy.country.clone(),
+        latency: proxy.latency,
+        score: proxy.score,
+    };
+
+    // Connect to a fast reliable target to confirm proxy actually routes traffic
+    let target = "api.ipify.org:443";
+
+    let (alive, latency) = match timeout(
+        timeout_duration,
+        tunnel::handshake_proxy(&mut stream, &hop, target),
+    )
+    .await
+    {
         Ok(Ok(_)) => {
             let elapsed = start.elapsed().as_secs_f64();
-            debug!(proxy_addr = %addr, latency = elapsed, "Proxy probe successful");
+            debug!(proxy_addr = %addr, latency = elapsed, "Proxy deep probe successful");
             (true, elapsed)
         }
         Ok(Err(e)) => {
-            debug!(proxy_addr = %addr, error = %e, "Proxy probe failed");
+            debug!(proxy_addr = %addr, error = %e, "Proxy deep probe handshake failed");
             (false, 0.0)
         }
         Err(_) => {
-            debug!(proxy_addr = %addr, timeout = timeout_secs, "Proxy probe timed out");
+            debug!(
+                proxy_addr = %addr,
+                timeout = timeout_secs,
+                "Proxy deep probe handshake timed out"
+            );
             (false, 0.0)
         }
-    }
+    };
+
+    // Explicitly drop stream to release file descriptors immediately
+    // rather than waiting for Tokio GC, which can deadlock on 10k items.
+    drop(stream);
+
+    (alive, latency)
 }
 
 /// Verify all proxies in the pool concurrently with bounded concurrency.
@@ -67,7 +104,11 @@ pub async fn verify_pool(proxies: Vec<Proxy>) -> Vec<Proxy> {
 pub async fn verify_pool_with_limit(mut proxies: Vec<Proxy>, max_concurrent: usize) -> Vec<Proxy> {
     let timeout_secs = DEFAULT_TIMEOUT_SECS;
     let total = proxies.len();
-    info!(proxy_count = total, max_concurrent = max_concurrent, "Re-verifying proxy pool");
+    info!(
+        proxy_count = total,
+        max_concurrent = max_concurrent,
+        "Re-verifying proxy pool (Deep Probe)"
+    );
 
     // Create a semaphore to limit concurrent connections
     let semaphore = Arc::new(Semaphore::new(max_concurrent));
@@ -75,8 +116,7 @@ pub async fn verify_pool_with_limit(mut proxies: Vec<Proxy>, max_concurrent: usi
     // Run probes concurrently with bounded concurrency — produce (index, alive, latency)
     let mut handles = Vec::with_capacity(total);
     for (i, proxy) in proxies.iter().enumerate() {
-        let ip = proxy.ip.clone();
-        let port = proxy.port;
+        let p = proxy.clone();
         let sem = Arc::clone(&semaphore);
 
         // Acquire a permit before spawning the task
@@ -91,15 +131,16 @@ pub async fn verify_pool_with_limit(mut proxies: Vec<Proxy>, max_concurrent: usi
         };
 
         // Log when semaphore is saturated (optional debug output)
-        // Clone the semaphore reference for checking available permits
         if semaphore.available_permits() == 0 {
-            debug!(max_concurrent = max_concurrent, "Semaphore saturated, verifications queued");
+            debug!(
+                max_concurrent = max_concurrent,
+                "Semaphore saturated, verifications queued"
+            );
         }
 
         handles.push(tokio::spawn(async move {
-            let (alive, latency) = probe_proxy(&ip, port, timeout_secs).await;
+            let (alive, latency) = deep_probe_proxy(&p, timeout_secs).await;
             // Explicitly release the permit by dropping it
-            // (permit is automatically dropped at end of this scope)
             drop(permit);
             (i, alive, latency)
         }));
@@ -167,7 +208,14 @@ mod tests {
     use super::*;
 
     /// Helper to create a test proxy
-    fn make_proxy(ip: &str, port: u16, alive: bool, latency: f64, fail_count: u32, last_verified: u64) -> Proxy {
+    fn make_proxy(
+        ip: &str,
+        port: u16,
+        alive: bool,
+        latency: f64,
+        fail_count: u32,
+        last_verified: u64,
+    ) -> Proxy {
         Proxy {
             ip: ip.to_string(),
             port,
@@ -199,7 +247,10 @@ mod tests {
         assert_eq!(result[0].ip, "127.0.0.1");
         assert_eq!(result[0].port, 1);
         // last_verified should be updated
-        assert!(result[0].last_verified > 0, "last_verified should be updated");
+        assert!(
+            result[0].last_verified > 0,
+            "last_verified should be updated"
+        );
     }
 
     #[tokio::test]
@@ -211,7 +262,10 @@ mod tests {
 
         // The proxy should be marked as dead (connection will fail)
         if !result.is_empty() {
-            assert!(!result[0].alive || result[0].fail_count > 0, "Dead proxy should have fail_count or be marked dead");
+            assert!(
+                !result[0].alive || result[0].fail_count > 0,
+                "Dead proxy should have fail_count or be marked dead"
+            );
         }
     }
 
@@ -244,7 +298,10 @@ mod tests {
         if !result.is_empty() {
             // If proxy is dead, fail_count should increment
             if !result[0].alive {
-                assert!(result[0].fail_count >= 1, "Fail count should increment on failure");
+                assert!(
+                    result[0].fail_count >= 1,
+                    "Fail count should increment on failure"
+                );
             }
         }
     }
@@ -253,9 +310,9 @@ mod tests {
     async fn test_fail_count_pruning() {
         // Proxies with fail_count >= MAX_FAIL_COUNT should be pruned
         let proxies = vec![
-            make_proxy("192.0.2.1", 11111, false, 0.0, 0, 0),  // fail_count = 0
-            make_proxy("192.0.2.2", 22222, false, 0.0, 2, 0),  // fail_count = 2
-            make_proxy("192.0.2.3", 33333, false, 0.0, 3, 0),  // fail_count = 3, should be pruned
+            make_proxy("192.0.2.1", 11111, false, 0.0, 0, 0), // fail_count = 0
+            make_proxy("192.0.2.2", 22222, false, 0.0, 2, 0), // fail_count = 2
+            make_proxy("192.0.2.3", 33333, false, 0.0, 3, 0), // fail_count = 3, should be pruned
         ];
 
         let result = verify_pool(proxies).await;
@@ -298,14 +355,26 @@ mod tests {
         let result = verify_pool(proxies).await;
 
         assert_eq!(result.len(), 1, "Should have 1 proxy");
-        assert!(result[0].last_verified > 0, "last_verified should be updated");
+        assert!(
+            result[0].last_verified > 0,
+            "last_verified should be updated"
+        );
     }
 
     #[test]
     fn test_is_pool_healthy_sufficient_alive() {
         // Pool with enough alive proxies should be healthy
         let proxies: Vec<Proxy> = (0..MIN_POOL_SIZE + 10)
-            .map(|i| make_proxy(&format!("192.168.1.{}", i), 8080, true, 100.0, 0, now_unix()))
+            .map(|i| {
+                make_proxy(
+                    &format!("192.168.1.{}", i),
+                    8080,
+                    true,
+                    100.0,
+                    0,
+                    now_unix(),
+                )
+            })
             .collect();
 
         // Pool should be healthy (enough alive, recently verified)
@@ -316,11 +385,23 @@ mod tests {
     fn test_is_pool_healthy_insufficient_alive() {
         // Pool with too few alive proxies should be unhealthy
         let proxies: Vec<Proxy> = (0..MIN_POOL_SIZE - 10)
-            .map(|i| make_proxy(&format!("192.168.1.{}", i), 8080, true, 100.0, 0, now_unix()))
+            .map(|i| {
+                make_proxy(
+                    &format!("192.168.1.{}", i),
+                    8080,
+                    true,
+                    100.0,
+                    0,
+                    now_unix(),
+                )
+            })
             .collect();
 
         // Pool should be unhealthy (not enough alive)
-        assert!(!is_pool_healthy(&proxies, 3600), "Pool should be unhealthy - insufficient alive");
+        assert!(
+            !is_pool_healthy(&proxies, 3600),
+            "Pool should be unhealthy - insufficient alive"
+        );
     }
 
     #[test]
@@ -332,7 +413,10 @@ mod tests {
             .collect();
 
         // Pool should be unhealthy (stale verification)
-        assert!(!is_pool_healthy(&proxies, 3600), "Pool should be unhealthy - stale");
+        assert!(
+            !is_pool_healthy(&proxies, 3600),
+            "Pool should be unhealthy - stale"
+        );
     }
 
     #[test]
@@ -340,7 +424,10 @@ mod tests {
         // Empty pool should be unhealthy
         let proxies: Vec<Proxy> = vec![];
 
-        assert!(!is_pool_healthy(&proxies, 3600), "Empty pool should be unhealthy");
+        assert!(
+            !is_pool_healthy(&proxies, 3600),
+            "Empty pool should be unhealthy"
+        );
     }
 
     #[test]
@@ -352,7 +439,10 @@ mod tests {
             .collect();
 
         // Pool should be unhealthy (no alive proxies)
-        assert!(!is_pool_healthy(&proxies, 3600), "Pool with all dead proxies should be unhealthy");
+        assert!(
+            !is_pool_healthy(&proxies, 3600),
+            "Pool with all dead proxies should be unhealthy"
+        );
     }
 
     #[tokio::test]
@@ -368,7 +458,10 @@ mod tests {
         if !result.is_empty() && result[0].alive {
             // Score should be boosted: (score * 0.95 + 0.05).min(1.0)
             // Expected: (0.5 * 0.95 + 0.05) = 0.525
-            assert!(result[0].score >= 0.5, "Score should be boosted or maintained");
+            assert!(
+                result[0].score >= 0.5,
+                "Score should be boosted or maintained"
+            );
         }
     }
 
@@ -384,7 +477,10 @@ mod tests {
         if !result.is_empty() && !result[0].alive {
             // Score should be penalized: score * 0.7
             // Expected: 0.8 * 0.7 = 0.56
-            assert!(result[0].score < 0.8, "Score should be penalized on failure");
+            assert!(
+                result[0].score < 0.8,
+                "Score should be penalized on failure"
+            );
         }
     }
 
@@ -418,7 +514,10 @@ mod tests {
         let result = verify_pool(proxies).await;
 
         assert!(!result.is_empty());
-        assert!(result[0].last_verified > old_time, "last_verified should be updated to current time");
+        assert!(
+            result[0].last_verified > old_time,
+            "last_verified should be updated to current time"
+        );
     }
 
     #[tokio::test]
@@ -446,13 +545,17 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        assert!(now >= expected - 1 && now <= expected + 1, "now_unix should return current time");
+        assert!(
+            now >= expected - 1 && now <= expected + 1,
+            "now_unix should return current time"
+        );
     }
 
     #[tokio::test]
     async fn test_probe_proxy_closed_port() {
         // Test probing a closed port
-        let (alive, latency) = probe_proxy("127.0.0.1", 1, 1).await;
+        let proxy = make_proxy("127.0.0.1", 1, false, 0.0, 0, 0);
+        let (alive, latency) = deep_probe_proxy(&proxy, 1).await;
 
         // Port 1 is typically closed
         assert!(!alive, "Port 1 should be closed");
@@ -463,7 +566,8 @@ mod tests {
     async fn test_probe_proxy_timeout() {
         // Test probing with short timeout
         // Use a non-routable IP to test timeout behavior
-        let (alive, latency) = probe_proxy("192.0.2.1", 80, 1).await;
+        let proxy = make_proxy("192.0.2.1", 80, false, 0.0, 0, 0);
+        let (alive, latency) = deep_probe_proxy(&proxy, 1).await;
 
         // This IP should not respond within 1 second
         assert!(!alive, "Non-routable IP should not be alive");
@@ -474,7 +578,7 @@ mod tests {
     fn test_constants() {
         // Verify constants are set correctly
         assert_eq!(MAX_FAIL_COUNT, 3);
-        assert_eq!(DEFAULT_TIMEOUT_SECS, 5);
+        assert_eq!(DEFAULT_TIMEOUT_SECS, 8);
         assert_eq!(MIN_POOL_SIZE, 30);
         assert_eq!(MAX_CONCURRENT_VERIFICATIONS, 50);
     }

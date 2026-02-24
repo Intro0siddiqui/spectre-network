@@ -1,10 +1,12 @@
 use crate::crypto;
-use crate::types::{ChainHop, CryptoHop, RotationDecision};
+use crate::types::{ChainHop, CryptoHop, Proxy, RotationDecision};
 use anyhow::{Context, Result};
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::RwLock;
 use tokio::time::timeout;
 use uuid::Uuid;
 
@@ -278,36 +280,72 @@ async fn build_circuit_internal(
     Ok(stream)
 }
 
-pub async fn start_socks_server(port: u16, decision: RotationDecision) -> Result<()> {
+pub async fn start_socks_server(
+    port: u16,
+    initial_decision: RotationDecision,
+    dns_pool: Vec<Proxy>,
+    non_dns_pool: Vec<Proxy>,
+    combined_pool: Vec<Proxy>,
+) -> Result<()> {
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     let listener = TcpListener::bind(addr).await?;
     tracing::info!(port = port, "Spectre Tunnel (SOCKS5) listening");
 
-    let chain_str = decision
-        .chain
-        .iter()
-        .map(|h| format!("{}://{}:{}", h.proto, h.ip, h.port))
-        .collect::<Vec<_>>()
-        .join(" -> ");
-    tracing::info!(chain = %chain_str, "Chain configured");
+    let decision = Arc::new(RwLock::new(initial_decision));
 
-    // Use the exit hop's crypto material (last in chain)
-    let exit_crypto = decision.encryption.last().cloned();
-    if exit_crypto.is_none() {
-        tracing::warn!("No encryption keys in rotation decision — traffic will not be encrypted");
-    }
+    // Spawn health monitor for live rotation
+    let monitor_decision = Arc::clone(&decision);
+    tokio::spawn(async move {
+        chain_health_monitor(monitor_decision, dns_pool, non_dns_pool, combined_pool).await;
+    });
 
     loop {
         let (client_stream, client_addr) = listener.accept().await?;
         tracing::debug!(client_addr = %client_addr, "New connection accepted");
 
-        let chain = decision.chain.clone();
-        let crypto_key = exit_crypto.clone();
+        let current_decision = decision.read().await.clone();
+
         tokio::spawn(async move {
-            if let Err(e) = handle_socks5_client(client_stream, chain, crypto_key).await {
+            // Use the exit hop's crypto material (last in chain)
+            let exit_crypto = current_decision.encryption.last().cloned();
+            if let Err(e) =
+                handle_socks5_client(client_stream, current_decision.chain, exit_crypto).await
+            {
                 tracing::debug!(error = %e, "Connection error");
             }
         });
+    }
+}
+
+/// Periodic health check and chain rotation
+async fn chain_health_monitor(
+    decision: Arc<RwLock<RotationDecision>>,
+    dns: Vec<Proxy>,
+    non_dns: Vec<Proxy>,
+    combined: Vec<Proxy>,
+) {
+    use crate::rotator;
+    let mut interval = tokio::time::interval(Duration::from_secs(300)); // Rotate every 5 mins
+    loop {
+        interval.tick().await;
+
+        let mode = { decision.read().await.mode.clone() };
+        tracing::info!("Health check: rotating chain for mode {}", mode);
+
+        if let Some(new_decision) = rotator::build_chain_decision(&mode, &dns, &non_dns, &combined)
+        {
+            let mut w = decision.write().await;
+            *w = new_decision;
+
+            let chain_str = w
+                .chain
+                .iter()
+                .map(|h| format!("{}://{}:{}", h.proto, h.ip, h.port))
+                .collect::<Vec<_>>()
+                .join(" -> ");
+
+            tracing::info!(chain_id = %w.chain_id, chain = %chain_str, "Chain rotated successfully");
+        }
     }
 }
 
@@ -558,56 +596,58 @@ async fn build_circuit(chain: &[ChainHop], target: &str) -> Result<TcpStream> {
         .await
 }
 
-async fn handshake_proxy(stream: &mut TcpStream, hop: &ChainHop, target: &str) -> Result<()> {
+pub async fn handshake_proxy(stream: &mut TcpStream, hop: &ChainHop, target: &str) -> Result<()> {
     match hop.proto.to_lowercase().as_str() {
         "socks5" => {
-            // SOCKS5 Handshake
-            stream.write_all(&[0x05, 0x01, 0x00]).await?;
-            let mut buf = [0u8; 2];
-            stream.read_exact(&mut buf).await?;
-            if buf[0] != 0x05 || buf[1] != 0x00 {
-                anyhow::bail!("SOCKS5 handshake failed with {}", hop.ip);
-            }
-
-            // Connect Request
-            // 05 01 00 03 (Domain) [len] [domain] [port]
-            // We use Domain type (0x03) for flexibility so we don't have to resolve DNS locally
-            let (host, port_str) = target.rsplit_once(':').unwrap_or((target, "80"));
-            let port: u16 = port_str.parse().unwrap_or(80);
-
-            let mut req = vec![0x05, 0x01, 0x00, 0x03];
-            req.push(host.len() as u8);
-            req.extend_from_slice(host.as_bytes());
-            req.extend_from_slice(&port.to_be_bytes());
-
-            stream.write_all(&req).await?;
-
-            // Read Response
-            let mut head = [0u8; 4];
-            stream.read_exact(&mut head).await?;
-            if head[1] != 0x00 {
-                anyhow::bail!("SOCKS5 connect failed on {}", hop.ip);
-            }
-
-            // Consume rest of response (BND.ADDR/PORT)
-            let atyp = head[3];
-            match atyp {
-                0x01 => {
-                    let mut b = [0u8; 6];
-                    stream.read_exact(&mut b).await?;
-                } // IPv4 + Port
-                0x03 => {
-                    // Domain
-                    let mut len = [0u8; 1];
-                    stream.read_exact(&mut len).await?;
-                    let mut b = vec![0u8; len[0] as usize + 2];
-                    stream.read_exact(&mut b).await?;
+            // SOCKS5 Handshake - wrap the whole process in a timeout
+            let socks_future = async {
+                stream.write_all(&[0x05, 0x01, 0x00]).await?;
+                let mut buf = [0u8; 2];
+                stream.read_exact(&mut buf).await?;
+                if buf[0] != 0x05 || buf[1] != 0x00 {
+                    anyhow::bail!("SOCKS5 handshake failed with {}", hop.ip);
                 }
-                0x04 => {
-                    let mut b = [0u8; 18];
-                    stream.read_exact(&mut b).await?;
-                } // IPv6
-                _ => {}
+
+                let (host, port_str) = target.rsplit_once(':').unwrap_or((target, "80"));
+                let port: u16 = port_str.parse().unwrap_or(80);
+
+                let mut req = vec![0x05, 0x01, 0x00, 0x03];
+                req.push(host.len() as u8);
+                req.extend_from_slice(host.as_bytes());
+                req.extend_from_slice(&port.to_be_bytes());
+                stream.write_all(&req).await?;
+
+                let mut head = [0u8; 4];
+                stream.read_exact(&mut head).await?;
+                if head[1] != 0x00 {
+                    anyhow::bail!("SOCKS5 connect failed on {}", hop.ip);
+                }
+
+                let atyp = head[3];
+                match atyp {
+                    0x01 => {
+                        let mut b = [0u8; 6];
+                        stream.read_exact(&mut b).await?;
+                    }
+                    0x03 => {
+                        let mut len = [0u8; 1];
+                        stream.read_exact(&mut len).await?;
+                        let mut b = vec![0u8; len[0] as usize + 2];
+                        stream.read_exact(&mut b).await?;
+                    }
+                    0x04 => {
+                        let mut b = [0u8; 18];
+                        stream.read_exact(&mut b).await?;
+                    }
+                    _ => {}
+                }
+                Ok::<(), anyhow::Error>(())
+            };
+
+            if let Err(_) =
+                tokio::time::timeout(std::time::Duration::from_secs(5), socks_future).await
+            {
+                anyhow::bail!("SOCKS5 handshake timeout on {}", hop.ip);
             }
         }
         "http" | "https" => {
@@ -616,22 +656,38 @@ async fn handshake_proxy(stream: &mut TcpStream, hop: &ChainHop, target: &str) -
             stream.write_all(req.as_bytes()).await?;
 
             // Read Response (look for 200 OK)
-            // Simplified reader: read until \r\n\r\n
-            let mut header_buf = Vec::new();
-            loop {
-                let byte = stream.read_u8().await?;
-                header_buf.push(byte);
-                if header_buf.len() >= 4 && &header_buf[header_buf.len() - 4..] == b"\r\n\r\n" {
-                    break;
+            // Wrap the read loop in a timeout
+            let read_future = async {
+                let mut header_buf = Vec::new();
+                let mut byte = [0u8; 1];
+                loop {
+                    match stream.read(&mut byte).await? {
+                        0 => anyhow::bail!("Handshake closed prematurely"),
+                        _ => {
+                            header_buf.push(byte[0]);
+                            if header_buf.len() >= 4
+                                && &header_buf[header_buf.len() - 4..] == b"\r\n\r\n"
+                            {
+                                break;
+                            }
+                            if header_buf.len() > 4096 {
+                                anyhow::bail!("HTTP CONNECT header too large");
+                            }
+                        }
+                    }
                 }
-                if header_buf.len() > 4096 {
-                    anyhow::bail!("HTTP CONNECT header too large");
+                let response = String::from_utf8_lossy(&header_buf);
+                if !response.contains("200 Connection established") && !response.contains("200 OK")
+                {
+                    anyhow::bail!("HTTP CONNECT failed on {}: {}", hop.ip, response);
                 }
-            }
+                Ok::<(), anyhow::Error>(())
+            };
 
-            let response = String::from_utf8_lossy(&header_buf);
-            if !response.contains("200 Connection established") && !response.contains("200 OK") {
-                anyhow::bail!("HTTP CONNECT failed on {}", hop.ip);
+            if let Err(_) =
+                tokio::time::timeout(std::time::Duration::from_secs(3), read_future).await
+            {
+                anyhow::bail!("HTTP CONNECT read timeout on {}", hop.ip);
             }
         }
         _ => anyhow::bail!("Unknown protocol: {}", hop.proto),
