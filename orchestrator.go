@@ -529,25 +529,17 @@ func printChain(d *RotationDecision) {
 // ── Rust bridge ───────────────────────────────────────────────────────────────
 
 func runScraper(workspace string, limit int, protocol string) ([]Proxy, error) {
-	scraperPath := filepath.Join(workspace, "go_scraper")
-	if _, err := os.Stat(scraperPath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("go_scraper binary not found — build with: go build -o go_scraper go_scraper.go")
-	}
-	cmd := exec.Command(scraperPath, "--limit", fmt.Sprintf("%d", limit), "--protocol", protocol)
-	// Pipe scraper progress logs to terminal (stderr), capture only JSON (stdout)
-	cmd.Stderr = os.Stderr
-	output, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("scraper failed: %v", err)
-	}
-	if strings.TrimSpace(string(output)) == "" || strings.TrimSpace(string(output)) == "[]" {
+	proxies := internalRunScraper(limit, protocol)
+
+	if len(proxies) == 0 {
 		return []Proxy{}, nil
 	}
-	_ = os.WriteFile(filepath.Join(workspace, "raw_proxies.json"), output, 0644)
-	var proxies []Proxy
-	if err := json.Unmarshal(output, &proxies); err != nil {
-		return nil, fmt.Errorf("parse scraper output: %v — raw: %.80s", err, string(output))
+
+	data, err := json.MarshalIndent(proxies, "", "  ")
+	if err == nil {
+		_ = os.WriteFile(filepath.Join(workspace, "raw_proxies.json"), data, 0644)
 	}
+
 	return proxies, nil
 }
 

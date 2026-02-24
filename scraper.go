@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"flag"
+
 	"fmt"
 	"io"
 	"net"
@@ -23,15 +23,6 @@ const (
 	ScrapeTimeout     = 2 * time.Minute
 	DefaultWorkers    = 100
 )
-
-type Proxy struct {
-	IP        string  `json:"ip"`
-	Port      int     `json:"port"`
-	Type      string  `json:"type"`
-	Latency   float64 `json:"latency,omitempty"`
-	Country   string  `json:"country,omitempty"`
-	Anonymity string  `json:"anonymity,omitempty"`
-}
 
 func fetchBody(ctx context.Context, urlStr string) ([]byte, error) {
 	client := &http.Client{Timeout: DefaultTimeout}
@@ -66,7 +57,7 @@ func parseIPPort(line string, ptype string) *Proxy {
 	if err != nil || port <= 0 || port > 65535 {
 		return nil
 	}
-	return &Proxy{IP: ip, Port: port, Type: ptype}
+	return &Proxy{IP: ip, Port: uint16(port), Proto: ptype}
 }
 
 func scrapeProxyScrape(ctx context.Context, protocol string, limit int, ch chan<- []Proxy) {
@@ -257,7 +248,7 @@ func scrapeGeoNodeAPI(ctx context.Context, protocol string, limit int, ch chan<-
 		if ptype == "" {
 			ptype = "http"
 		}
-		proxies = append(proxies, Proxy{IP: d.IP, Port: port, Type: ptype})
+		proxies = append(proxies, Proxy{IP: d.IP, Port: uint16(port), Proto: ptype})
 	}
 	fmt.Fprintf(os.Stderr, "Scraped %d %s from GeoNode API\n", len(proxies), protocol)
 	ch <- proxies
@@ -274,7 +265,7 @@ func scrapeFreeProxyList(ctx context.Context, limit int, ch chan<- []Proxy) {
 		portStr := e.ChildText("td:nth-child(2)")
 		port, _ := strconv.Atoi(portStr)
 		if ip != "" && port > 0 {
-			proxies = append(proxies, Proxy{IP: ip, Port: port, Type: "http"})
+			proxies = append(proxies, Proxy{IP: ip, Port: uint16(port), Proto: "http"})
 		}
 	})
 	c.Visit("https://free-proxy-list.net/")
@@ -305,50 +296,46 @@ func validateProxy(p Proxy, ch chan<- Proxy) {
 	conn, err := net.DialTimeout("tcp", addr, ValidationTimeout)
 	latency := time.Since(start).Seconds()
 	if err != nil {
-		ch <- Proxy{IP: p.IP, Port: p.Port, Type: p.Type, Latency: 0}
+		ch <- Proxy{IP: p.IP, Port: p.Port, Proto: p.Proto, Latency: 0}
 		return
 	}
 	conn.Close()
-	ch <- Proxy{IP: p.IP, Port: p.Port, Type: p.Type, Latency: latency}
+	ch <- Proxy{IP: p.IP, Port: p.Port, Proto: p.Proto, Latency: latency}
 }
 
-func main() {
-	protocol := flag.String("protocol", "all", "Proxy protocol")
-	limit := flag.Int("limit", 500, "Max proxies")
-	workers := flag.Int("workers", DefaultWorkers, "Workers")
-	flag.Parse()
-
+func internalRunScraper(limit int, protocol string) []Proxy {
+	workers := DefaultWorkers
 	ch := make(chan []Proxy, 30)
 	ctx, cancel := context.WithTimeout(context.Background(), ScrapeTimeout)
 	defer cancel()
 
 	sources := 0
-	if *protocol == "all" || *protocol == "http" {
-		go scrapeProxyScrape(ctx, "http", *limit, ch)
+	if protocol == "all" || protocol == "http" {
+		go scrapeProxyScrape(ctx, "http", limit, ch)
 		sources++
-		go scrapeGitHubProxyLists(ctx, "thespeedx", *limit, ch)
+		go scrapeGitHubProxyLists(ctx, "thespeedx", limit, ch)
 		sources++
-		go scrapeGitHubProxyLists(ctx, "monosans", *limit, ch)
+		go scrapeGitHubProxyLists(ctx, "monosans", limit, ch)
 		sources++
-		go scrapeVakhov(ctx, *limit, ch)
+		go scrapeVakhov(ctx, limit, ch)
 		sources++
-		go scrapeFreeProxyList(ctx, *limit, ch)
+		go scrapeFreeProxyList(ctx, limit, ch)
 		sources++
-		go scrapeGeoNodeAPI(ctx, "http", *limit, ch)
+		go scrapeGeoNodeAPI(ctx, "http", limit, ch)
 		sources++
 	}
-	if *protocol == "all" || *protocol == "socks5" {
-		go scrapeProxyScrape(ctx, "socks5", *limit, ch)
+	if protocol == "all" || protocol == "socks5" {
+		go scrapeProxyScrape(ctx, "socks5", limit, ch)
 		sources++
-		go scrapeHookzof(ctx, *limit, ch)
+		go scrapeHookzof(ctx, limit, ch)
 		sources++
-		go scrapeIplocate(ctx, *limit, ch)
+		go scrapeIplocate(ctx, limit, ch)
 		sources++
-		go scrapeKomutan(ctx, *limit, ch)
+		go scrapeKomutan(ctx, limit, ch)
 		sources++
-		go scrapeProxifly(ctx, *limit, ch)
+		go scrapeProxifly(ctx, limit, ch)
 		sources++
-		go scrapeGeoNodeAPI(ctx, "socks5", *limit, ch)
+		go scrapeGeoNodeAPI(ctx, "socks5", limit, ch)
 		sources++
 	}
 
@@ -377,7 +364,7 @@ collector:
 
 	validCh := make(chan Proxy, len(unique))
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, *workers)
+	sem := make(chan struct{}, workers)
 	for _, p := range unique {
 		wg.Add(1)
 		go func(proxy Proxy) {
@@ -391,11 +378,10 @@ collector:
 
 	validated := []Proxy{}
 	for p := range validCh {
-		if p.Latency > 0 && p.Type != "" {
+		if p.Latency > 0 && p.Proto != "" {
 			validated = append(validated, p)
 		}
 	}
 
-	data, _ := json.MarshalIndent(validated, "", "  ")
-	os.Stdout.Write(data)
+	return validated
 }

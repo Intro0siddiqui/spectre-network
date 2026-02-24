@@ -7,8 +7,8 @@
 #   4. Prints a security scorecard (grade A+ → F)
 #
 # Build workflow (run on host first):
-#   1. cargo build --release --no-default-features
-#   2. CGO_ENABLED=1 go build -o spectre orchestrator.go
+#   1. cargo build --release
+#   2. CGO_ENABLED=1 go build -ldflags="-s -w" -o spectre orchestrator.go
 #   3. go build -o go_scraper go_scraper.go
 #   4. cd security-audit && go build -o ../spectre-audit .
 #   5. ./spectre run --mode phantom --limit 500   # populates proxies_*.json
@@ -27,9 +27,7 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Rust shared library
-COPY target/release/librotator_rs.so /usr/lib/librotator_rs.so
-RUN ldconfig
+
 
 # Binaries
 COPY spectre       /usr/local/bin/spectre

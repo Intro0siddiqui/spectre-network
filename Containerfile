@@ -1,8 +1,8 @@
 # Spectre Network — Runtime Image (Podman)
 #
 # Build workflow:
-#   1. cargo build --release --no-default-features
-#   2. CGO_ENABLED=1 go build -o spectre orchestrator.go
+#   1. cargo build --release
+#   2. CGO_ENABLED=1 go build -ldflags="-s -w" -o spectre orchestrator.go
 #   3. go build -o go_scraper go_scraper.go
 #   4. ./spectre run --mode phantom --limit 500   # populates proxies_*.json
 #   5. podman build -t spectre-preloaded -f Containerfile .
@@ -20,9 +20,7 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy pre-built Rust shared library and register it with the linker
-COPY target/release/librotator_rs.so /usr/lib/librotator_rs.so
-RUN ldconfig
+
 
 # Install binaries to PATH
 COPY spectre /usr/local/bin/spectre
