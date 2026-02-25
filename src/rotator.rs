@@ -1,4 +1,4 @@
-use crate::types::{ChainHop, ChainTopology, CryptoHop, Proxy, RotationDecision};
+use crate::types::{ChainHop, ChainTopology, CryptoHop, Proxy, ProxyTier, RotationDecision};
 use rand::prelude::*;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -148,11 +148,16 @@ pub fn filter_mode_pool(
     let mut pool = Vec::new();
     match mode {
         "lite" => {
+            // Lite mode: use all proxies from combined pool
+            // Fallback to dns + non_dns if combined is empty
             pool.extend_from_slice(combined);
-            pool.extend_from_slice(non_dns);
-            pool.extend_from_slice(dns);
+            if pool.is_empty() {
+                pool.extend_from_slice(dns);
+                pool.extend_from_slice(non_dns);
+            }
         }
         "stealth" => {
+            // Stealth: HTTP/HTTPS only from all pools
             for p in combined.iter().chain(dns).chain(non_dns) {
                 let proto = normalize_proto(&p.proto);
                 if proto == "http" || proto == "https" {
@@ -161,32 +166,77 @@ pub fn filter_mode_pool(
             }
         }
         "high" => {
+            // High: prefers DNS-capable SOCKS5/HTTPS
             for p in dns {
                 let proto = normalize_proto(&p.proto);
                 if proto == "https" || proto == "socks5" {
                     pool.push(p.clone());
                 }
             }
+            // Fallback to combined if DNS pool is empty
             if pool.is_empty() {
                 for p in combined {
-                    if p.score >= 0.5 {
+                    let proto = normalize_proto(&p.proto);
+                    if proto == "https" || proto == "socks5" {
+                        pool.push(p.clone());
+                    }
+                }
+            }
+            // Final fallback: use all pools
+            if pool.is_empty() {
+                for p in combined.iter().chain(dns).chain(non_dns) {
+                    let proto = normalize_proto(&p.proto);
+                    if proto == "https" || proto == "socks5" {
                         pool.push(p.clone());
                     }
                 }
             }
         }
         "phantom" => {
+            // Phantom: DNS-capable SOCKS5/HTTPS with strict score filtering
+            // Primary filter: score >= 0.7 (Gold+ tier) - this is the strict requirement
             for p in dns {
                 let proto = normalize_proto(&p.proto);
-                if (proto == "socks5" || proto == "https") && p.score >= 0.4 {
+                if (proto == "socks5" || proto == "https") && p.score >= 0.7 {
                     pool.push(p.clone());
+                }
+            }
+            // Fallback 1: only if NO Gold+ proxies found, try Silver tier (0.5-0.7)
+            if pool.is_empty() {
+                for p in dns {
+                    let proto = normalize_proto(&p.proto);
+                    if (proto == "socks5" || proto == "https") && p.score >= 0.5 {
+                        pool.push(p.clone());
+                    }
+                }
+            }
+            // Fallback 2: if still empty, try combined pool
+            if pool.is_empty() {
+                for p in combined {
+                    let proto = normalize_proto(&p.proto);
+                    if (proto == "socks5" || proto == "https") && p.score >= 0.5 {
+                        pool.push(p.clone());
+                    }
+                }
+            }
+            // Last resort: if still empty, use any DNS-capable with score >= 0.3
+            if pool.is_empty() {
+                for p in dns.iter().chain(combined) {
+                    let proto = normalize_proto(&p.proto);
+                    if (proto == "socks5" || proto == "https") && p.score >= 0.3 {
+                        pool.push(p.clone());
+                    }
                 }
             }
         }
         _ => {
-            pool.extend_from_slice(combined);
-            pool.extend_from_slice(dns);
-            pool.extend_from_slice(non_dns);
+            // Default: filter SOCKS4, use Silver+
+            for p in combined.iter().chain(dns).chain(non_dns) {
+                let proto = normalize_proto(&p.proto);
+                if proto != "socks4" && p.tier >= ProxyTier::Silver {
+                    pool.push(p.clone());
+                }
+            }
         }
     }
 
@@ -385,6 +435,7 @@ pub fn build_chain_decision(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::ProxyTier;
     use crate::types::HopInfo;
     use rand::SeedableRng;
 
@@ -406,6 +457,7 @@ mod tests {
             country: country.to_string(),
             anonymity: anonymity.to_string(),
             score,
+            tier: ProxyTier::from_score(score),
             fail_count: 0,
             last_verified: 0,
             alive: true,
@@ -458,20 +510,20 @@ mod tests {
 
     #[test]
     fn test_filter_mode_phantom_requires_minimum_score() {
-        // Phantom mode filters low-score proxies
+        // Phantom mode requires Gold+ tier proxies (score >= 0.70)
         let dns = vec![
-            make_dns_proxy("192.168.1.1", 8080, "https", 0.8), // Above threshold
-            make_dns_proxy("192.168.1.2", 8081, "socks5", 0.3), // Below threshold (0.4)
-            make_dns_proxy("192.168.1.3", 8082, "https", 0.5), // Above threshold
+            make_dns_proxy("192.168.1.1", 8080, "https", 0.85), // Platinum tier
+            make_dns_proxy("192.168.1.2", 8081, "socks5", 0.50), // Silver tier - filtered out
+            make_dns_proxy("192.168.1.3", 8082, "https", 0.75), // Gold tier
         ];
         let non_dns: Vec<Proxy> = vec![];
         let combined: Vec<Proxy> = vec![];
 
         let pool = filter_mode_pool("phantom", &dns, &non_dns, &combined);
 
-        // Phantom mode requires score >= 0.4 and socks5/https
-        assert_eq!(pool.len(), 2, "Should filter out low-score proxy");
-        assert!(pool.iter().all(|p| p.score >= 0.4));
+        // Phantom mode requires Gold+ tier (score >= 0.70)
+        assert_eq!(pool.len(), 2, "Should filter out Silver tier proxy");
+        assert!(pool.iter().all(|p| p.tier >= ProxyTier::Gold));
     }
 
     #[test]

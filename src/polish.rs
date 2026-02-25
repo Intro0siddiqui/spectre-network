@@ -1,4 +1,4 @@
-use crate::types::Proxy;
+use crate::types::{Proxy, ProxyTier};
 use std::collections::{HashMap, HashSet};
 
 const LATENCY_WEIGHT: f64 = 0.4;
@@ -101,9 +101,12 @@ pub fn calculate_scores(mut proxies: Vec<Proxy>) -> Vec<Proxy> {
         }
 
         p.score = score;
+        
+        // Assign tier based on final score
+        p.tier = ProxyTier::from_score(score);
     }
 
-    // Sort descending
+    // Sort descending by score
     proxies.sort_by(|a, b| {
         b.score
             .partial_cmp(&a.score)
@@ -135,6 +138,7 @@ pub fn split_proxy_pools(proxies: Vec<Proxy>) -> (Vec<Proxy>, Vec<Proxy>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::ProxyTier;
 
     /// Helper to create a test proxy
     fn make_proxy(
@@ -153,6 +157,7 @@ mod tests {
             country: country.to_string(),
             anonymity: anonymity.to_string(),
             score: 0.0,
+            tier: ProxyTier::Bronze,
             fail_count: 0,
             last_verified: 0,
             alive: true,

@@ -1,10 +1,10 @@
 # Rust build artifacts
 /target/
 
-# Compiled Go binaries
-go_scraper
-spectre
-spectre-audit
+# Compiled binaries
+spectre         # Main binary (Go orchestrator + scraper + Rust FFI)
+spectre-audit   # Security audit binary
+go_scraper      # Scraper binary (only needed for Rust standalone at target/release/spectre)
 
 # Runtime-generated proxy pool files
 raw_proxies.json

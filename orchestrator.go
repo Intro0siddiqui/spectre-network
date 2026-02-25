@@ -40,13 +40,14 @@ func col(c, s string) string { return c + s + reset }
 
 // ── Data types ────────────────────────────────────────────────────────────────
 type Proxy struct {
-	IP        string  `json:"ip"`
-	Port      uint16  `json:"port"`
-	Proto     string  `json:"type"`
-	Latency   float64 `json:"latency"`
-	Country   string  `json:"country"`
-	Anonymity string  `json:"anonymity"`
-	Score     float64 `json:"score"`
+	IP        string  `json:"ip,omitempty"`
+	Port      uint16  `json:"port,omitempty"`
+	Proto     string  `json:"type,omitempty"`
+	Latency   float64 `json:"latency,omitempty"`
+	Country   string  `json:"country,omitempty"`
+	Anonymity string  `json:"anonymity,omitempty"`
+	Score     float64 `json:"score,omitempty"`
+	Tier      string  `json:"tier"` // Assigned by Rust polish - do not omit to preserve tier data across FFI
 }
 
 type PolishResult struct {

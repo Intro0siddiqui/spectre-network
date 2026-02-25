@@ -206,6 +206,7 @@ pub fn is_pool_healthy(proxies: &[Proxy], stale_secs: u64) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::ProxyTier;
 
     /// Helper to create a test proxy
     fn make_proxy(
@@ -224,6 +225,7 @@ mod tests {
             country: "us".to_string(),
             anonymity: "elite".to_string(),
             score: 0.5,
+            tier: ProxyTier::Silver,
             fail_count,
             last_verified,
             alive,

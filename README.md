@@ -8,31 +8,39 @@ A self-contained, adversarial proxy mesh. Farms its own proxy pool, scores and f
 
 | Layer | Language | Role |
 |---|---|---|
-| Scraper | Go | Fetches proxies from 12+ sources concurrently |
-| Engine | Rust (`rotator_rs`) | Polishes, scores, and builds encrypted chains |
-| Orchestrator | Go + CGO | Primary CLI that drives the full pipeline via FFI into the Rust lib |
+| Scraper + Orchestrator | Go | Single binary: fetches proxies from 12+ sources + CLI orchestration |
+| Engine | Rust (`rotator_rs`) | Polishes, scores, and builds encrypted chains (called via FFI) |
 | Tunnel | Rust (tokio) | SOCKS5 server with per-connection AES-256-GCM encryption |
 | Audit | Go | Containerised adversarial leak testing (9-test suite) |
 
-The Go orchestrator (`orchestrator.go`) is the primary `spectre` binary. It is statically linked against the compiled Rust library (`librotator_rs.a`) via CGO/FFI for all core logic (polishing, chain building, and serving), resulting in a single standalone executable. It shells out to the Go scraper binary (`go_scraper`) for proxy collection.
+The `spectre` binary is a single standalone executable built from `orchestrator.go` and `scraper.go`, statically linked against the compiled Rust library (`librotator_rs.a`) via CGO/FFI. All core logic (polishing, chain building, serving) is handled by Rust, while Go handles scraping and CLI orchestration.
 
 ---
 
 ## Build
 
+### Quick Build (Recommended)
+
+```bash
+# Build and install globally (~/.local/bin/spectre)
+./build.sh install
+
+# Or build only (binary in current directory)
+./build.sh
+```
+
+### Manual Build
+
 ```bash
 # 1. Build the Rust engine (creates static library librotator_rs.a)
 cargo build --release
 
-# 2. Build the Go orchestrator (statically links librotator_rs.a for a single standalone binary)
-CGO_ENABLED=1 go build -ldflags="-s -w" -o spectre orchestrator.go
-
-# 3. Build the Go scraper
-go build -o go_scraper go_scraper.go
+# 2. Build the spectre binary (Go orchestrator + scraper + Rust FFI, fully static)
+CGO_ENABLED=1 go build -ldflags="-s -w -extldflags '-static'" -o spectre orchestrator.go scraper.go
 ```
 
-> **Note:** The `spectre` binary produced by the Go build is the intended entry-point.
-> The standalone Rust binary at `target/release/spectre` is used internally by the `refresh` command.
+> **Note:** The `spectre` binary produced by the Go build is the primary entry-point.
+> A standalone Rust binary exists at `target/release/spectre` but is not required for normal usage.
 
 ---
 

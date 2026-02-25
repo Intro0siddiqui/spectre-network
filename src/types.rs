@@ -1,4 +1,80 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+
+/// Proxy quality tier based on real connectivity testing
+/// Higher tiers = better quality, faster, more reliable
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Serialize, Deserialize, Hash)]
+#[serde(rename_all = "lowercase")]
+pub enum ProxyTier {
+    /// Dead or very slow (>3s latency, fails CONNECT)
+    #[serde(rename = "dead")]
+    Dead = 0,
+    /// Working but slow (1-3s latency, some failures)
+    #[serde(rename = "bronze")]
+    Bronze = 1,
+    /// Good quality (0.5-1s latency, reliable)
+    #[serde(rename = "silver")]
+    Silver = 2,
+    /// Fast and reliable (0.1-0.5s latency, 200 OK responses)
+    #[serde(rename = "gold")]
+    Gold = 3,
+    /// Premium ( <0.1s latency, never blocked, elite anonymity)
+    #[serde(rename = "platinum")]
+    Platinum = 4,
+}
+
+impl Default for ProxyTier {
+    fn default() -> Self {
+        ProxyTier::Bronze
+    }
+}
+
+/// Custom deserializer for ProxyTier that handles empty strings, missing values, and Option types
+fn deserialize_tier<'de, D>(deserializer: D) -> Result<ProxyTier, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    // Handle both string and Option<string> cases
+    let opt = Option::<String>::deserialize(deserializer)?;
+    Ok(match opt.as_deref() {
+        Some("platinum") => ProxyTier::Platinum,
+        Some("gold") => ProxyTier::Gold,
+        Some("silver") => ProxyTier::Silver,
+        Some("bronze") => ProxyTier::Bronze,
+        Some("dead") => ProxyTier::Dead,
+        Some("") | None => ProxyTier::Bronze, // Default for empty or missing values
+        Some(unknown) => {
+            // Log unknown tier and default to Bronze
+            log::warn!("Unknown proxy tier '{}', defaulting to bronze", unknown);
+            ProxyTier::Bronze
+        }
+    })
+}
+
+impl ProxyTier {
+    pub fn from_score(score: f64) -> Self {
+        if score >= 0.85 {
+            ProxyTier::Platinum
+        } else if score >= 0.70 {
+            ProxyTier::Gold
+        } else if score >= 0.50 {
+            ProxyTier::Silver
+        } else if score >= 0.30 {
+            ProxyTier::Bronze
+        } else {
+            ProxyTier::Dead
+        }
+    }
+
+    pub fn min_score(&self) -> f64 {
+        match self {
+            ProxyTier::Platinum => 0.85,
+            ProxyTier::Gold => 0.70,
+            ProxyTier::Silver => 0.50,
+            ProxyTier::Bronze => 0.30,
+            ProxyTier::Dead => 0.0,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Proxy {
@@ -16,6 +92,9 @@ pub struct Proxy {
     pub anonymity: String,
     #[serde(default)]
     pub score: f64,
+    /// Quality tier based on real connectivity testing (assigned by Rust polish)
+    #[serde(default, deserialize_with = "deserialize_tier")]
+    pub tier: ProxyTier,
     /// Consecutive verification failures (prune at >= 3)
     #[serde(default)]
     pub fail_count: u32,

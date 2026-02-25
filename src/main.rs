@@ -143,12 +143,15 @@ async fn main() -> Result<()> {
 }
 
 fn run_scraper(workspace: &PathBuf, limit: usize, protocol: &str) -> Result<Vec<Proxy>> {
+    // Note: This Rust standalone binary calls the Go scraper as a subprocess.
+    // The primary Go orchestrator (orchestrator.go + scraper.go) has the scraper
+    // compiled in and does not require a separate binary.
     info!("Starting Go scraper...");
     let scraper_path = workspace.join("go_scraper");
 
     // Check if scraper exists
     if !scraper_path.exists() {
-        anyhow::bail!("go_scraper binary not found at {}", scraper_path.display());
+        anyhow::bail!("go_scraper binary not found at {}. Build with: go build -o go_scraper scraper.go", scraper_path.display());
     }
 
     let output = Command::new(&scraper_path)

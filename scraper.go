@@ -96,6 +96,10 @@ func scrapeGitHubProxyLists(ctx context.Context, source string, limit int, ch ch
 			"http":   "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt",
 			"socks5": "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/socks5.txt",
 		}
+	case "clarketm":
+		urls = map[string]string{
+			"http":   "https://raw.githubusercontent.com/clarketm/proxy-list/master/proxy-list.txt",
+		}
 	default:
 		ch <- nil
 		return
@@ -277,14 +281,88 @@ func scrapeProxyScrapeLive(ctx context.Context, limit int, ch chan<- []Proxy) {
 	scrapeProxyScrape(ctx, "http", limit, ch)
 }
 
-func scrapeProxyDaily(ctx context.Context, limit int, ch chan<- []Proxy) { ch <- nil }
-func scrapeSpysOne(ctx context.Context, limit int, ch chan<- []Proxy)    { ch <- nil }
-func scrapeProxyNova(ctx context.Context, limit int, ch chan<- []Proxy)  { ch <- nil }
-func scrapeOpenProxy(ctx context.Context, limit int, ch chan<- []Proxy)  { ch <- nil }
-func scrapeProxyListDownload(ctx context.Context, protocol string, limit int, ch chan<- []Proxy) {
+// scrapeOpenProxySpace fetches from OpenProxy.space API
+func scrapeOpenProxySpace(ctx context.Context, protocol string, limit int, ch chan<- []Proxy) {
+	// API is often down, skip for now
 	ch <- nil
 }
-func scrapeHideMyName(ctx context.Context, limit int, ch chan<- []Proxy) { ch <- nil }
+
+// scrapeProxySpace fetches from proxy-space.info (reliable GitHub-based lists)
+func scrapeProxySpace(ctx context.Context, limit int, ch chan<- []Proxy) {
+	// Use raw GitHub files from proxy-space project
+	urls := []string{
+		"https://raw.githubusercontent.com/proxifresh/proxy-list/main/http.txt",
+		"https://raw.githubusercontent.com/ShiftyTR/Proxy-List/master/http.txt",
+		"https://raw.githubusercontent.com/ShiftyTR/Proxy-List/master/socks5.txt",
+	}
+	proxies := []Proxy{}
+	for _, urlStr := range urls {
+		body, err := fetchBody(ctx, urlStr)
+		if err != nil {
+			continue
+		}
+		for _, l := range strings.Split(string(body), "\n") {
+			// Try both http and socks5
+			if p := parseIPPort(l, "http"); p != nil {
+				proxies = append(proxies, *p)
+			} else if p := parseIPPort(l, "socks5"); p != nil {
+				proxies = append(proxies, *p)
+			}
+			if len(proxies) >= limit {
+				break
+			}
+		}
+	}
+	fmt.Fprintf(os.Stderr, "Scraped %d from ProxySpace\n", len(proxies))
+	ch <- proxies
+}
+
+// scrapeProxyListDownload fetches from proxy-list.download API
+func scrapeProxyListDownload(ctx context.Context, protocol string, limit int, ch chan<- []Proxy) {
+	urlStr := fmt.Sprintf("https://api.proxy-list.download/api/v1/get?protocol=%s&limit=%d", protocol, limit)
+	body, err := fetchBody(ctx, urlStr)
+	if err != nil {
+		ch <- nil
+		return
+	}
+	// Parse JSON response
+	var data []struct {
+		IP       string  `json:"ip"`
+		Port     int     `json:"port"`
+		Protocol string  `json:"protocol"`
+		Anon     string  `json:"anon"`
+		Country  string  `json:"country"`
+		Latency  float64 `json:"latency"`
+	}
+	if err := json.Unmarshal(body, &data); err != nil {
+		ch <- nil
+		return
+	}
+	proxies := []Proxy{}
+	for _, d := range data {
+		if d.Protocol != "" && d.Protocol != protocol {
+			continue
+		}
+		proxies = append(proxies, Proxy{
+			IP:      d.IP,
+			Port:    uint16(d.Port),
+			Proto:   d.Protocol,
+			Country: d.Country,
+		})
+		if len(proxies) >= limit {
+			break
+		}
+	}
+	fmt.Fprintf(os.Stderr, "Scraped %d from Proxy-List.download\n", len(proxies))
+	ch <- proxies
+}
+
+// Stub functions for disabled sources
+func scrapeProxyDaily(ctx context.Context, limit int, ch chan<- []Proxy)     { ch <- nil }
+func scrapeSpysOne(ctx context.Context, limit int, ch chan<- []Proxy)        { ch <- nil }
+func scrapeProxyNova(ctx context.Context, limit int, ch chan<- []Proxy)      { ch <- nil }
+func scrapeOpenProxy(ctx context.Context, limit int, ch chan<- []Proxy)      { ch <- nil }
+func scrapeHideMyName(ctx context.Context, limit int, ch chan<- []Proxy)     { ch <- nil }
 func scrapeFreeProxyWorld(ctx context.Context, protocol string, limit int, ch chan<- []Proxy) {
 	ch <- nil
 }
@@ -317,25 +395,31 @@ func internalRunScraper(limit int, protocol string) []Proxy {
 		sources++
 		go scrapeGitHubProxyLists(ctx, "monosans", limit, ch)
 		sources++
+		go scrapeGitHubProxyLists(ctx, "clarketm", limit, ch)
+		sources++
 		go scrapeVakhov(ctx, limit, ch)
 		sources++
 		go scrapeFreeProxyList(ctx, limit, ch)
 		sources++
 		go scrapeGeoNodeAPI(ctx, "http", limit, ch)
 		sources++
+		go scrapeProxySpace(ctx, limit, ch)
+		sources++
 	}
 	if protocol == "all" || protocol == "socks5" {
-		go scrapeProxyScrape(ctx, "socks5", limit, ch)
+		go scrapeProxyScrape(ctx, "socks5", limit*2, ch) // 2x limit for SOCKS5
 		sources++
-		go scrapeHookzof(ctx, limit, ch)
+		go scrapeHookzof(ctx, limit, ch) // High quality SOCKS5 - keep
 		sources++
-		go scrapeIplocate(ctx, limit, ch)
+		go scrapeGitHubProxyLists(ctx, "thespeedx", limit, ch)
 		sources++
-		go scrapeKomutan(ctx, limit, ch)
+		go scrapeGitHubProxyLists(ctx, "monosans", limit, ch)
 		sources++
-		go scrapeProxifly(ctx, limit, ch)
+		go scrapeGitHubProxyLists(ctx, "clarketm", limit, ch)
 		sources++
 		go scrapeGeoNodeAPI(ctx, "socks5", limit, ch)
+		sources++
+		go scrapeProxySpace(ctx, limit, ch)
 		sources++
 	}
 

@@ -4,7 +4,8 @@
 # SOCKS5 chain for each mode.
 #
 # Prerequisites: build the Go orchestrator first
-#   CGO_ENABLED=1 go build -o spectre orchestrator.go
+#   cargo build --release
+#   CGO_ENABLED=1 go build -ldflags="-s -w" -o spectre orchestrator.go scraper.go
 
 set -e
 

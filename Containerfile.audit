@@ -8,12 +8,11 @@
 #
 # Build workflow (run on host first):
 #   1. cargo build --release
-#   2. CGO_ENABLED=1 go build -ldflags="-s -w" -o spectre orchestrator.go
-#   3. go build -o go_scraper go_scraper.go
-#   4. cd security-audit && go build -o ../spectre-audit .
-#   5. ./spectre run --mode phantom --limit 500   # populates proxies_*.json
-#   6. podman build -f Containerfile.audit -t spectre-audit .
-#   7. podman run --rm spectre-audit
+#   2. CGO_ENABLED=1 go build -ldflags="-s -w" -o spectre orchestrator.go scraper.go
+#   3. cd security-audit && go build -o ../spectre-audit .
+#   4. ./spectre run --mode phantom --limit 500   # populates proxies_*.json
+#   5. podman build -f Containerfile.audit -t spectre-audit .
+#   6. podman run --rm spectre-audit
 
 FROM ubuntu:24.04
 WORKDIR /app
@@ -27,13 +26,10 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-
-
-# Binaries
+# Binaries (scraper is compiled into spectre)
 COPY spectre       /usr/local/bin/spectre
-COPY go_scraper    /usr/local/bin/go_scraper
 COPY spectre-audit /usr/local/bin/spectre-audit
-RUN chmod +x /usr/local/bin/spectre /usr/local/bin/go_scraper /usr/local/bin/spectre-audit
+RUN chmod +x /usr/local/bin/spectre /usr/local/bin/spectre-audit
 
 # Pre-filled proxy pool
 COPY proxies_dns.json proxies_non_dns.json proxies_combined.json /app/

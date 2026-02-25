@@ -2,11 +2,10 @@
 #
 # Build workflow:
 #   1. cargo build --release
-#   2. CGO_ENABLED=1 go build -ldflags="-s -w" -o spectre orchestrator.go
-#   3. go build -o go_scraper go_scraper.go
-#   4. ./spectre run --mode phantom --limit 500   # populates proxies_*.json
-#   5. podman build -t spectre-preloaded -f Containerfile .
-#   6. podman run -d --name spectre-node -p 1080:1080 spectre-preloaded
+#   2. CGO_ENABLED=1 go build -ldflags="-s -w" -o spectre orchestrator.go scraper.go
+#   3. ./spectre run --mode phantom --limit 500   # populates proxies_*.json
+#   4. podman build -t spectre-preloaded -f Containerfile .
+#   5. podman run -d --name spectre-node -p 1080:1080 spectre-preloaded
 
 FROM ubuntu:24.04
 WORKDIR /app
@@ -20,12 +19,9 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-
-
-# Install binaries to PATH
+# Install spectre binary to PATH (scraper is compiled in)
 COPY spectre /usr/local/bin/spectre
-COPY go_scraper /usr/local/bin/go_scraper
-RUN chmod +x /usr/local/bin/spectre /usr/local/bin/go_scraper
+RUN chmod +x /usr/local/bin/spectre
 
 # Copy pre-filled proxy pool — avoids scraping inside the container
 COPY proxies_dns.json proxies_non_dns.json proxies_combined.json /app/
