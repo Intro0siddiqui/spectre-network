@@ -1,6 +1,6 @@
 # Spectre Network
 
-A self-contained, adversarial proxy mesh. Farms its own proxy pool, scores and filters it, then builds multi-hop AES-256-GCM encrypted relay chains — no third-party VPN subscription required.
+A self-contained, adversarial proxy mesh. Farms its own proxy pool, scores and filters by tier (Dead/Bronze/Silver/Gold/Platinum), then builds multi-hop AES-256-GCM encrypted relay chains — no third-party VPN subscription required.
 
 ---
 
@@ -8,8 +8,8 @@ A self-contained, adversarial proxy mesh. Farms its own proxy pool, scores and f
 
 | Layer | Language | Role |
 |---|---|---|
-| Scraper + Orchestrator | Go | Single binary: fetches proxies from 12+ sources + CLI orchestration |
-| Engine | Rust (`rotator_rs`) | Polishes, scores, and builds encrypted chains (called via FFI) |
+| Scraper + Orchestrator | Go | Single binary: fetches proxies from 9+ sources + CLI orchestration |
+| Engine | Rust (`rotator_rs`) | Polishes, scores, assigns tiers, builds encrypted chains (called via FFI) |
 | Tunnel | Rust (tokio) | SOCKS5 server with per-connection AES-256-GCM encryption |
 | Audit | Go | Containerised adversarial leak testing (9-test suite) |
 
@@ -94,12 +94,26 @@ spectre audit
 
 ## Modes
 
-| Mode | Hops | DNS | Encryption | Anonymity |
-|---|---|---|---|---|
-| `lite` | 1 | Local | AES-256-GCM | Low |
-| `stealth` | 1–2 | Local | AES-256-GCM | Medium |
-| `high` | 2–3 | Via chain | AES-256-GCM | High |
-| `phantom` | 3–5 | Via chain | AES-256-GCM | Maximum |
+| Mode | Hops | Proxy Requirements | DNS | Encryption | Anonymity |
+|---|---|---|---|---|---|
+| `lite` | 1 | All proxies (Bronze+) | Local | AES-256-GCM | Low |
+| `stealth` | 1–2 | HTTP/HTTPS only | Local | AES-256-GCM | Medium |
+| `high` | 2–3 | SOCKS5/HTTPS preferred | Via chain | AES-256-GCM | High |
+| `phantom` | 3–5 | Gold+ tier (score ≥ 0.7) SOCKS5/HTTPS | Via chain | AES-256-GCM | Maximum |
+
+### Proxy Tier System
+
+Proxies are automatically classified by quality during polish:
+
+| Tier | Score Range | Description |
+|---|---|---|
+| **Platinum** | ≥ 0.85 | Premium (<0.1s latency, elite anonymity) |
+| **Gold** | 0.70–0.85 | Fast and reliable (0.1–0.5s latency) |
+| **Silver** | 0.50–0.70 | Good quality (0.5–1s latency) |
+| **Bronze** | 0.30–0.50 | Working but slow (1–3s latency) |
+| **Dead** | < 0.30 | Unusable (>3s latency, fails CONNECT) |
+
+Tier assignment is automatic based on weighted scoring (latency, anonymity, country, protocol).
 
 ---
 
@@ -156,18 +170,24 @@ Grading: **A+** (9/9) → **A** (≥8/9) → **B** (≥7/9) → **C** (≥6/9) �
 
 ## Proxy Sources
 
-The Go scraper fans out concurrently across up to 12 sources:
+The Go scraper fans out concurrently across 9 active sources:
 
-- ProxyScrape API (HTTP + SOCKS5)
-- TheSpeedX GitHub proxy lists
-- monosans GitHub proxy lists
-- vakhov/fresh-proxy-list
-- hookzof/socks5_list
-- iplocate/free-proxy-list
-- komutan234/Proxy-List-Free
-- Proxifly free-proxy-list
+**Working Sources:**
+- ProxyScrape API (HTTP)
 - GeoNode API (HTTP + SOCKS5)
+- TheSpeedX GitHub proxy lists (HTTP + SOCKS4 + SOCKS5)
+- monosans GitHub proxy lists (HTTP + SOCKS5)
+- vakhov/fresh-proxy-list (HTTP + SOCKS5)
+- ProxySpace / ShiftyTR GitHub (HTTP + SOCKS5)
 - FreeProxyList.net (HTML scrape via Colly)
+- hookzof/socks5_list (SOCKS5, high quality)
+- clarketm GitHub proxy list
+
+**Removed (dead/unreliable):**
+- Proxifly, Iplocate, Komutan234 (consistently returned 0 proxies)
+- ProxyScrape SOCKS5 endpoint (depleted)
+
+**Typical pool size:** 600–800 proxies per scrape at `--limit 200`
 
 ---
 
