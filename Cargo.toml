@@ -17,7 +17,6 @@ default = []
 python = ["pyo3"]
 
 [dependencies]
-tokio = { version = "1.0", features = ["full"] }
 lazy_static = "1.4"
 pyo3 = { version = "0.23", optional = true, features = ["extension-module"] }
 serde = { version = "1.0", features = ["derive"] }
@@ -34,7 +33,6 @@ hkdf = "0.12"
 sha2 = "0.10"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-uuid = { version = "1.0", features = ["v4"] }
 
 [dev-dependencies]
 getrandom = "0.2"

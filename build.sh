@@ -42,7 +42,12 @@ build() {
     cargo build --release
 
     echo "[2/2] Building spectre binary (static)..."
-    CGO_ENABLED=1 go build -ldflags="-s -w -extldflags '-static'" -o spectre orchestrator.go scraper.go
+    CGO_ENABLED=1 go build -ldflags="-s -w -extldflags '-static'" -o spectre .
+
+    echo "[3/3] Building spectre-audit probe..."
+    cd "$SCRIPT_DIR/security-audit"
+    go build -o ../spectre-audit .
+    cd "$SCRIPT_DIR"
 
     echo ""
     echo "✓ Build complete: $(ls -lh spectre | awk '{print $5, $9}')"

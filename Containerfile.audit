@@ -40,8 +40,8 @@ COPY proxies_dns.json proxies_non_dns.json proxies_combined.json /app/
 #   - Runs the security probe tool against it
 #   - Exits with the audit result code
 RUN printf '#!/bin/bash\nset -e\n\
-echo "[audit] Starting Spectre SOCKS5 server (phantom mode)..."\n\
-spectre serve --mode phantom --port 1080 &\n\
+echo "[audit] Starting Spectre SOCKS5 server (lite mode)..."\n\
+spectre serve --mode lite --port 1080 &\n\
 SPECTRE_PID=$!\n\
 echo "[audit] Waiting for SOCKS5 server to come up..."\n\
 for i in $(seq 1 15); do\n\

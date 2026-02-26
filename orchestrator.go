@@ -392,7 +392,8 @@ func cmdAudit() {
 	// Auto-build spectre-audit probe binary if missing
 	if _, err := os.Stat("spectre-audit"); os.IsNotExist(err) {
 		fmt.Printf("%s Building spectre-audit probe...\n", col(cyan, "◈"))
-		auditBuild := exec.Command("go", "build", "-o", "spectre-audit", "./security-audit/")
+		auditBuild := exec.Command("go", "build", "-o", "../spectre-audit", ".")
+		auditBuild.Dir = "./security-audit/"
 		auditBuild.Stdout = os.Stdout
 		auditBuild.Stderr = os.Stderr
 		if err := auditBuild.Run(); err != nil {

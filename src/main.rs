@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use log::{error, info, warn};
+use log::{error, info};
 use rotator_rs::types::{Proxy, RotationDecision};
 use rotator_rs::{polish, rotator};
 use std::fs;
@@ -52,8 +52,7 @@ struct Cli {
     force_scrape: bool,
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     init_logging();
 
     let cli = Cli::parse();

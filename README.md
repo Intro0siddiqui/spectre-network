@@ -8,12 +8,13 @@ A self-contained, adversarial proxy mesh. Farms its own proxy pool, scores and f
 
 | Layer | Language | Role |
 |---|---|---|
-| Scraper + Orchestrator | Go | Single binary: fetches proxies from 9+ sources + CLI orchestration |
-| Engine | Rust (`rotator_rs`) | Polishes, scores, assigns tiers, builds encrypted chains (called via FFI) |
-| Tunnel | Rust (tokio) | SOCKS5 server with per-connection AES-256-GCM encryption |
+| Orchestrator | Go | CLI orchestration, state management, file I/O |
+| Networking | Go | 100% of network I/O: Scraper, Verifier, SOCKS5 Server, Tunneling |
+| Engine | Rust | System processing: Scored Tiering, Topology calculations, AES-256-GCM |
 | Audit | Go | Containerised adversarial leak testing (9-test suite) |
 
-The `spectre` binary is a single standalone executable built from `orchestrator.go` and `scraper.go`, statically linked against the compiled Rust library (`librotator_rs.a`) via CGO/FFI. All core logic (polishing, chain building, serving) is handled by Rust, while Go handles scraping and CLI orchestration.
+### The Go-Native Boundary
+Spectre Network enforces a strict domain isolation model. **Go** manages the entire lifecycle of network packets, proxy validation, and SOCKS5 handshakes. **Rust** is strictly isolated from the network, providing high-performance cryptographic and mathematical primitives via CGO/FFI.
 
 ---
 
@@ -35,8 +36,8 @@ The `spectre` binary is a single standalone executable built from `orchestrator.
 # 1. Build the Rust engine (creates static library librotator_rs.a)
 cargo build --release
 
-# 2. Build the spectre binary (Go orchestrator + scraper + Rust FFI, fully static)
-CGO_ENABLED=1 go build -ldflags="-s -w -extldflags '-static'" -o spectre orchestrator.go scraper.go
+# 2. Build the spectre binary (Go + Rust FFI, fully static)
+CGO_ENABLED=1 go build -ldflags="-s -w -extldflags '-static'" -o spectre .
 ```
 
 > **Note:** The `spectre` binary produced by the Go build is the primary entry-point.
