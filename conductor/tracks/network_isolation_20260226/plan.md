@@ -64,3 +64,6 @@ Enforce the architectural boundary between Go and Rust. Rust must be isolated fr
   - [x] Commit changes with task summary.
 
 - [x] **Task: Conductor - User Manual Verification 'Phase 3: Rust Engine Refactoring & Clean-up' (Protocol in workflow.md)** [checkpoint: f750c38]
+
+## Phase: Review Fixes
+- [x] Task: Apply review suggestions [3564d8d]
