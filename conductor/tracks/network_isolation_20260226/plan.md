@@ -63,4 +63,4 @@ Enforce the architectural boundary between Go and Rust. Rust must be isolated fr
   - [x] Finalize documentation in `README.md` and `architecture.md` to reflect the new architecture.
   - [x] Commit changes with task summary.
 
-- [ ] **Task: Conductor - User Manual Verification 'Phase 3: Rust Engine Refactoring & Clean-up' (Protocol in workflow.md)**
+- [x] **Task: Conductor - User Manual Verification 'Phase 3: Rust Engine Refactoring & Clean-up' (Protocol in workflow.md)** [checkpoint: f750c38]

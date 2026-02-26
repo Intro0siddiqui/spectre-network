@@ -121,6 +121,10 @@ func encryptedPipe(client, server net.Conn, keyHex, nonceHex string) error {
 	return <-errCh
 }
 
+	// Wait for any side to finish or error
+	return <-errCh
+}
+
 func encryptWithCounter(keyHex, nonceHex string, counter uint64, plaintext []byte) ([]byte, error) {
 	cKey := C.CString(keyHex)
 	defer C.free(unsafe.Pointer(cKey))
@@ -214,8 +218,8 @@ func startSOCKS5Server(port int, initialDecision RotationDecision, dnsPool, nonD
 		d := currentDecision
 		mu.RUnlock()
 
-		go func(c net.Conn, decision RotationDecision) {
-			if err := handleSOCKS5Client(c, decision); err != nil {
+		go func(c net.Conn, d RotationDecision) {
+			if err := handleSOCKS5Client(c, d, dnsPool, nonDNSPool, combinedPool); err != nil {
 				// Silently log or handle connection errors
 			}
 		}(client, d)
@@ -223,7 +227,7 @@ func startSOCKS5Server(port int, initialDecision RotationDecision, dnsPool, nonD
 }
 
 // handleSOCKS5Client handles the initial SOCKS5 handshake and request parsing.
-func handleSOCKS5Client(conn net.Conn, decision RotationDecision) error {
+func handleSOCKS5Client(conn net.Conn, decision RotationDecision, dnsPool, nonDNSPool, combinedPool []Proxy) error {
 	defer conn.Close()
 
 	// 1. SOCKS5 Handshake
@@ -311,13 +315,16 @@ func handleSOCKS5Client(conn net.Conn, decision RotationDecision) error {
 		return fmt.Errorf("unsupported SOCKS5 address type: %d", atyp)
 	}
 
-	_ = targetAddr
+	fmt.Printf("%s Target requested: %s\n", col(cyan, "◈"), targetAddr)
+
 	// 3. Build circuit through the chain
-	server, err := buildCircuit(decision.Chain, targetAddr)
+	server, err := buildCircuit(decision.Chain, targetAddr, dnsPool, nonDNSPool, combinedPool, decision.Mode)
 	if err != nil {
+		fmt.Printf("%s Failed to build circuit: %v\n", col(red, "✗"), err)
 		return fmt.Errorf("failed to build circuit: %v", err)
 	}
 	defer server.Close()
+	fmt.Printf("%s Circuit built successfully to %s\n", col(green, "✓"), targetAddr)
 
 	// 4. Send success to client
 	if _, err := conn.Write([]byte{0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0}); err != nil {
@@ -331,7 +338,7 @@ func handleSOCKS5Client(conn net.Conn, decision RotationDecision) error {
 		return encryptedPipe(conn, server, exitCrypto.KeyHex, exitCrypto.NonceHex)
 	}
 
-	// Fallback to plain pipe if no encryption keys (should not happen in production)
+	// Fallback to plain pipe
 	errCh := make(chan error, 2)
 	go func() {
 		_, err := io.Copy(server, conn)
@@ -344,11 +351,41 @@ func handleSOCKS5Client(conn net.Conn, decision RotationDecision) error {
 	return <-errCh
 }
 
-// buildCircuit builds a multi-hop proxy circuit.
-func buildCircuit(chain []ChainHop, target string) (net.Conn, error) {
+// buildCircuit builds a multi-hop proxy circuit with retries and live rotation.
+func buildCircuit(chain []ChainHop, target string, dnsPool, nonDNSPool, combinedPool []Proxy, mode string) (net.Conn, error) {
 	if len(chain) == 0 {
 		return nil, fmt.Errorf("empty proxy chain")
 	}
+
+	maxRetries := 3
+	var lastErr error
+	currentChain := chain
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			fmt.Printf("%s Circuit build attempt %d/%d (rotating proxies)...\n", col(dim, "→"), attempt+1, maxRetries)
+			// Rotate the chain on failure
+			newDecision, err := buildChainDecision(mode, dnsPool, nonDNSPool, combinedPool)
+			if err == nil && newDecision != nil {
+				currentChain = newDecision.Chain
+			}
+		}
+
+		conn, err := buildCircuitInternal(currentChain, target)
+		if err == nil {
+			return conn, nil
+		}
+		
+		lastErr = err
+		fmt.Printf("%s Attempt %d failed: %v\n", col(yellow, "⚠"), attempt+1, err)
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	return nil, fmt.Errorf("all retries failed: %v", lastErr)
+}
+
+func buildCircuitInternal(chain []ChainHop, target string) (net.Conn, error) {
+	fmt.Printf("%s Building circuit through %d hops to %s\n", col(dim, "→"), len(chain), target)
 
 	// Connect to first hop
 	first := chain[0]
@@ -365,6 +402,7 @@ func buildCircuit(chain []ChainHop, target string) (net.Conn, error) {
 		nextDest = fmt.Sprintf("%s:%d", next.IP, next.Port)
 	}
 
+	fmt.Printf("%s Handshaking with hop 1 (%s) -> %s\n", col(dim, "  →"), first.IP, nextDest)
 	if err := handshakeProxy(conn, first, nextDest); err != nil {
 		conn.Close()
 		return nil, err
@@ -379,6 +417,7 @@ func buildCircuit(chain []ChainHop, target string) (net.Conn, error) {
 			nextDest = fmt.Sprintf("%s:%d", next.IP, next.Port)
 		}
 
+		fmt.Printf("%s Handshaking with hop %d (%s) -> %s\n", col(dim, "  →"), i+1, current.IP, nextDest)
 		if err := handshakeProxy(conn, current, nextDest); err != nil {
 			conn.Close()
 			return nil, err
@@ -388,8 +427,13 @@ func buildCircuit(chain []ChainHop, target string) (net.Conn, error) {
 	return conn, nil
 }
 
+
 // handshakeProxy performs the protocol-specific handshake (SOCKS5 or HTTP CONNECT).
 func handshakeProxy(conn net.Conn, hop ChainHop, target string) error {
+	// Set deadline for the whole handshake
+	conn.SetDeadline(time.Now().Add(10 * time.Second))
+	defer conn.SetDeadline(time.Time{})
+
 	proto := strings.ToLower(hop.Proto)
 	switch proto {
 	case "socks5":
@@ -400,10 +444,10 @@ func handshakeProxy(conn net.Conn, hop ChainHop, target string) error {
 		// 2. Read selected method
 		buf := make([]byte, 2)
 		if _, err := io.ReadFull(conn, buf); err != nil {
-			return err
+			return fmt.Errorf("socks5 read method: %v", err)
 		}
 		if buf[0] != 0x05 || buf[1] != 0x00 {
-			return fmt.Errorf("socks5 handshake failed with %s", hop.IP)
+			return fmt.Errorf("socks5 handshake failed with %s: got %x %x", hop.IP, buf[0], buf[1])
 		}
 
 		// 3. Send CONNECT request
@@ -414,21 +458,30 @@ func handshakeProxy(conn net.Conn, hop ChainHop, target string) error {
 		}
 		port, _ := strconv.Atoi(portStr)
 
-		req := []byte{0x05, 0x01, 0x00, 0x03, byte(len(host))}
-		req = append(req, []byte(host)...)
+		var req []byte
+		ip := net.ParseIP(host)
+		if ip != nil && ip.To4() != nil {
+			// IPv4 address
+			req = []byte{0x05, 0x01, 0x00, 0x01}
+			req = append(req, ip.To4()...)
+		} else {
+			// Domain name
+			req = []byte{0x05, 0x01, 0x00, 0x03, byte(len(host))}
+			req = append(req, []byte(host)...)
+		}
 		req = append(req, byte(port>>8), byte(port&0xFF))
 		
 		if _, err := conn.Write(req); err != nil {
-			return err
+			return fmt.Errorf("socks5 write connect: %v", err)
 		}
 
 		// 4. Read response
 		head := make([]byte, 4)
 		if _, err := io.ReadFull(conn, head); err != nil {
-			return err
+			return fmt.Errorf("socks5 read connect response head: %v", err)
 		}
 		if head[1] != 0x00 {
-			return fmt.Errorf("socks5 connect failed on %s", hop.IP)
+			return fmt.Errorf("socks5 connect failed on %s: status %d (target: %s)", hop.IP, head[1], target)
 		}
 
 		// Skip address
