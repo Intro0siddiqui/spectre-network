@@ -22,31 +22,31 @@ Enforce the architectural boundary between Go and Rust. Rust must be isolated fr
   - [ ] Ensure Rust's `polish` logic now accepts pre-validated proxies.
   - [ ] Commit changes with task summary.
 
-- [ ] **Task: Conductor - User Manual Verification 'Phase 1: Migrate Verifier Logic to Go' (Protocol in workflow.md)**
+- [x] **Task: Conductor - User Manual Verification 'Phase 1: Migrate Verifier Logic to Go' (Protocol in workflow.md)** [checkpoint: 07e6557]
 
 ## Phase 2: Migrate Tunneling & SOCKS5 Server to Go
 
-- [ ] **Task: Implement Go-based SOCKS5 Server**
+- [x] **Task: Implement Go-based SOCKS5 Server**
   - [ ] Write failing unit tests in Go for a SOCKS5 server.
   - [ ] Implement the core SOCKS5 listener and handshake logic in Go.
   - [ ] Verify coverage (>80%) for the SOCKS5 implementation.
 
-- [ ] **Task: Implement Go-based Multi-hop Tunneling**
+- [x] **Task: Implement Go-based Multi-hop Tunneling**
   - [ ] Write failing unit tests for a multi-hop proxy circuit (Go layer).
   - [ ] Implement the logic to build a circuit through a chain of 1 to 5 proxies (SOCKS5/HTTP/HTTPS).
   - [ ] Integrate Rust's AES-256-GCM encryption primitives into the Go tunnel pipe.
   - [ ] Verify coverage (>80%) for the tunneling logic.
 
-- [ ] **Task: Refactor Orchestrator to use Go Tunnel**
-  - [ ] Replace `start_spectre_server_c` with the new Go-native server implementation.
-  - [ ] Ensure the Go tunnel correctly routes DNS through the chain when required by the mode.
-  - [ ] Commit changes with task summary.
+- [x] **Task: Refactor Orchestrator to use Go Tunnel**
+  - [x] Replace `start_spectre_server_c` with the new Go-native server implementation.
+  - [x] Ensure the Go tunnel correctly routes DNS through the chain when required by the mode.
+  - [x] Commit changes with task summary.
 
-- [ ] **Task: Remove Rust Tunnel Logic**
-  - [ ] Delete `src/tunnel.rs` and its module declaration in `src/lib.rs`.
-  - [ ] Remove `start_spectre_server_c` and other network-related FFI exports.
-  - [ ] Ensure Rust's `lib.rs` and `src/` directory are free from `tokio::net` and `std::net` imports.
-  - [ ] Commit changes with task summary.
+- [x] **Task: Remove Rust Tunnel Logic**
+  - [x] Delete `src/tunnel.rs` and its module declaration in `src/lib.rs`.
+  - [x] Remove `start_spectre_server_c` and other network-related FFI exports.
+  - [x] Ensure Rust's `lib.rs` and `src/` directory are free from `tokio::net` and `std::net` imports.
+  - [x] Commit changes with task summary.
 
 - [ ] **Task: Conductor - User Manual Verification 'Phase 2: Migrate Tunneling & SOCKS5 Server to Go' (Protocol in workflow.md)**
 
