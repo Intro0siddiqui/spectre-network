@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use log::{error, info, warn};
 use rotator_rs::types::{Proxy, RotationDecision};
-use rotator_rs::{polish, rotator, tunnel};
+use rotator_rs::{polish, rotator};
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
@@ -79,16 +79,6 @@ async fn main() -> Result<()> {
                 print_decision(&d);
             } else {
                 error!("Failed to build chain");
-            }
-        }
-        "serve" => {
-            let (dns, non_dns, combined) = load_pools(&workspace)?;
-            let decision = rotator::build_chain_decision(&cli.mode, &dns, &non_dns, &combined);
-            if let Some(d) = decision {
-                print_decision(&d);
-                tunnel::start_socks_server(cli.port, d, dns, non_dns, combined).await?;
-            } else {
-                error!("Failed to build chain. Run 'full' or 'scrape' first to populate pools.");
             }
         }
         "full" => {

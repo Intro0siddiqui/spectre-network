@@ -8,7 +8,9 @@ extern char* run_polish_c(const char* raw_json);
 extern char* build_chain_decision_c(const char* mode, const char* dns_json, const char* non_dns_json, const char* combined_json);
 extern char* build_chain_topology_c(const char* mode, const char* dns_json, const char* non_dns_json, const char* combined_json);
 extern char* derive_keys_from_secret_c(const char* master_secret, const char* chain_id, int num_hops);
-extern int start_spectre_server_c(unsigned short port, const char* decision_json, const char* dns_json, const char* non_dns_json, const char* combined_json);
+extern unsigned char* encrypt_with_counter_c(const char* key_hex, const char* nonce_hex, unsigned long long counter, const unsigned char* plaintext, size_t plaintext_len, size_t* out_len);
+extern unsigned char* decrypt_with_counter_c(const char* key_hex, const char* nonce_hex, unsigned long long counter, const unsigned char* ciphertext, size_t ciphertext_len, size_t* out_len);
+extern void free_byte_array(unsigned char* ptr, size_t len);
 extern void free_c_string(char* s);
 */
 import "C"
@@ -352,25 +354,8 @@ func cmdServe(workspace, mode string, port int) {
 
 	fmt.Printf("%s Starting SOCKS5 server on port %d with live rotation...\n", col(green, "✓"), port)
 
-	decisionJSON, _ := json.Marshal(decision)
-	cDecision := C.CString(string(decisionJSON))
-	defer C.free(unsafe.Pointer(cDecision))
-
-	dnsJSON, _ := json.Marshal(dns)
-	cDNS := C.CString(string(dnsJSON))
-	defer C.free(unsafe.Pointer(cDNS))
-
-	nonDNSJSON, _ := json.Marshal(nonDNS)
-	cNonDNS := C.CString(string(nonDNSJSON))
-	defer C.free(unsafe.Pointer(cNonDNS))
-
-	combinedJSON, _ := json.Marshal(combined)
-	cCombined := C.CString(string(combinedJSON))
-	defer C.free(unsafe.Pointer(cCombined))
-
-	res := C.start_spectre_server_c(C.ushort(port), cDecision, cDNS, cNonDNS, cCombined)
-	if res != 0 {
-		log.Fatalf("%s Server failed with exit code: %d", col(red, "✗"), res)
+	if err := startSOCKS5Server(port, *decision, dns, nonDNS, combined); err != nil {
+		log.Fatalf("%s Server failed: %v", col(red, "✗"), err)
 	}
 }
 

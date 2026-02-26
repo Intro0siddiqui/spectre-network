@@ -21,7 +21,6 @@ use std::path::PathBuf;
 pub mod crypto;
 pub mod polish;
 pub mod rotator;
-pub mod tunnel;
 pub mod types;
 
 #[cfg(feature = "python")]
@@ -884,96 +883,84 @@ pub extern "C" fn derive_keys_from_secret_c(
 }
 
 #[no_mangle]
-pub extern "C" fn start_spectre_server_c(
-    port: u16,
-    decision_json: *const c_char,
-    dns_json: *const c_char,
-    non_dns_json: *const c_char,
-    combined_json: *const c_char,
-) -> i32 {
+pub extern "C" fn encrypt_with_counter_c(
+    key_hex: *const c_char,
+    nonce_hex: *const c_char,
+    counter: u64,
+    plaintext: *const u8,
+    plaintext_len: usize,
+    out_len: *mut usize,
+) -> *mut u8 {
     init_logger();
-
     let result = catch_unwind_ffi(
         || {
-            if decision_json.is_null() {
-                log::error!("start_spectre_server_c: decision_json is null");
-                return Some(-1);
-            }
-            if dns_json.is_null() || non_dns_json.is_null() || combined_json.is_null() {
-                log::error!("start_spectre_server_c: missing pool pointers");
-                return Some(-10);
+            if key_hex.is_null() || nonce_hex.is_null() || plaintext.is_null() || out_len.is_null() {
+                return None;
             }
 
-            let c_str = unsafe { CStr::from_ptr(decision_json) };
-            let json_str = match c_str.to_str() {
-                Ok(s) => s,
-                Err(e) => {
-                    log::error!(
-                        "start_spectre_server_c: Invalid UTF-8 in decision_json: {}",
-                        e
-                    );
-                    return Some(-2);
-                }
-            };
+            let key_str = unsafe { CStr::from_ptr(key_hex) }.to_str().ok()?;
+            let nonce_str = unsafe { CStr::from_ptr(nonce_hex) }.to_str().ok()?;
+            let data = unsafe { std::slice::from_raw_parts(plaintext, plaintext_len) };
 
-            let decision: types::RotationDecision = match serde_json::from_str(json_str) {
-                Ok(d) => d,
-                Err(e) => {
-                    log::error!(
-                        "start_spectre_server_c: Failed to parse decision JSON: {}",
-                        e
-                    );
-                    return Some(-3);
-                }
-            };
-
-            // Parse pools for live rotation
-            let dns: Vec<types::Proxy> = match serde_json::from_str(unsafe {
-                CStr::from_ptr(dns_json).to_str().unwrap_or("[]")
-            }) {
-                Ok(p) => p,
-                _ => Vec::new(),
-            };
-            let non_dns: Vec<types::Proxy> = match serde_json::from_str(unsafe {
-                CStr::from_ptr(non_dns_json).to_str().unwrap_or("[]")
-            }) {
-                Ok(p) => p,
-                _ => Vec::new(),
-            };
-            let combined: Vec<types::Proxy> = match serde_json::from_str(unsafe {
-                CStr::from_ptr(combined_json).to_str().unwrap_or("[]")
-            }) {
-                Ok(p) => p,
-                _ => Vec::new(),
-            };
-
-            // Start tokio runtime and block on the server (this blocks the C caller thread)
-            let rt = match tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                .build()
-            {
-                Ok(r) => r,
-                Err(e) => {
-                    log::error!(
-                        "start_spectre_server_c: Failed to build tokio runtime: {}",
-                        e
-                    );
-                    return Some(-4);
-                }
-            };
-
-            match rt.block_on(tunnel::start_socks_server(
-                port, decision, dns, non_dns, combined,
-            )) {
-                Ok(_) => Some(0),
-                Err(e) => {
-                    log::error!("start_spectre_server_c: Server error: {}", e);
-                    Some(-5)
-                }
+            let encrypted = crypto::encrypt_with_counter(key_str, nonce_str, counter, data).ok()?;
+            
+            unsafe {
+                *out_len = encrypted.len();
             }
+            
+            let mut encrypted_boxed = encrypted.into_boxed_slice();
+            let ptr = encrypted_boxed.as_mut_ptr();
+            std::mem::forget(encrypted_boxed);
+            Some(ptr)
         },
-        "start_spectre_server_c",
+        "encrypt_with_counter_c",
     );
 
-    result.unwrap_or(-99)
+    result.unwrap_or(std::ptr::null_mut())
+}
+
+#[no_mangle]
+pub extern "C" fn decrypt_with_counter_c(
+    key_hex: *const c_char,
+    nonce_hex: *const c_char,
+    counter: u64,
+    ciphertext: *const u8,
+    ciphertext_len: usize,
+    out_len: *mut usize,
+) -> *mut u8 {
+    init_logger();
+    let result = catch_unwind_ffi(
+        || {
+            if key_hex.is_null() || nonce_hex.is_null() || ciphertext.is_null() || out_len.is_null() {
+                return None;
+            }
+
+            let key_str = unsafe { CStr::from_ptr(key_hex) }.to_str().ok()?;
+            let nonce_str = unsafe { CStr::from_ptr(nonce_hex) }.to_str().ok()?;
+            let data = unsafe { std::slice::from_raw_parts(ciphertext, ciphertext_len) };
+
+            let decrypted = crypto::decrypt_with_counter(key_str, nonce_str, counter, data).ok()?;
+            
+            unsafe {
+                *out_len = decrypted.len();
+            }
+            
+            let mut decrypted_boxed = decrypted.into_boxed_slice();
+            let ptr = decrypted_boxed.as_mut_ptr();
+            std::mem::forget(decrypted_boxed);
+            Some(ptr)
+        },
+        "decrypt_with_counter_c",
+    );
+
+    result.unwrap_or(std::ptr::null_mut())
+}
+
+#[no_mangle]
+pub extern "C" fn free_byte_array(ptr: *mut u8, len: usize) {
+    if !ptr.is_null() {
+        unsafe {
+            let _ = Box::from_raw(std::slice::from_raw_parts_mut(ptr, len));
+        }
+    }
 }
