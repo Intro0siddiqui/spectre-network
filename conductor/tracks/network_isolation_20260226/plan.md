@@ -48,19 +48,19 @@ Enforce the architectural boundary between Go and Rust. Rust must be isolated fr
   - [x] Ensure Rust's `lib.rs` and `src/` directory are free from `tokio::net` and `std::net` imports.
   - [x] Commit changes with task summary.
 
-- [ ] **Task: Conductor - User Manual Verification 'Phase 2: Migrate Tunneling & SOCKS5 Server to Go' (Protocol in workflow.md)**
+- [x] **Task: Conductor - User Manual Verification 'Phase 2: Migrate Tunneling & SOCKS5 Server to Go' (Protocol in workflow.md)** [checkpoint: b3f9031]
 
 ## Phase 3: Rust Engine Refactoring & Clean-up
 
-- [ ] **Task: Strip Networking Dependencies from Rust**
+- [x] **Task: Strip Networking Dependencies from Rust**
   - [ ] Update `Cargo.toml` to remove `tokio` (with network features) and other network-specific crates.
   - [ ] Refactor `src/rotator.rs` to ensure it only performs scoring and topology generation based on provided metrics.
   - [ ] Commit changes with task summary.
 
-- [ ] **Task: Final Integration & Audit**
-  - [ ] Execute `spectre audit` to confirm anonymity and leak protection.
-  - [ ] Run `benchmark.sh` to compare performance with the previous implementation.
-  - [ ] Finalize documentation in `README.md` and `architecture.md` to reflect the new architecture.
-  - [ ] Commit changes with task summary.
+- [x] **Task: Final Integration & Audit**
+  - [x] Execute `spectre audit` to confirm anonymity and leak protection.
+  - [x] Run `benchmark.sh` to compare performance with the previous implementation.
+  - [x] Finalize documentation in `README.md` and `architecture.md` to reflect the new architecture.
+  - [x] Commit changes with task summary.
 
 - [ ] **Task: Conductor - User Manual Verification 'Phase 3: Rust Engine Refactoring & Clean-up' (Protocol in workflow.md)**
