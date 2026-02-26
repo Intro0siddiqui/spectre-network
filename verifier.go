@@ -1,0 +1,87 @@
+package main
+
+import (
+	"fmt"
+	"math"
+	"net"
+	"sync"
+	"time"
+)
+
+const (
+	MaxFailCount               = 3
+	DefaultVerifyTimeout       = 8 * time.Second
+	MinPoolSize                = 30
+	MaxConcurrentVerifications = 50
+)
+
+func nowUnix() uint64 {
+	return uint64(time.Now().Unix())
+}
+
+// internalVerifyProxy performs a TCP connection test and updates proxy metrics.
+// This ports the logic from Rust's deep_probe_proxy (TCP part) and verify_pool.
+func internalVerifyProxy(p *Proxy, timeout time.Duration) {
+	addr := fmt.Sprintf("%s:%d", p.IP, p.Port)
+	start := time.Now()
+	
+	conn, err := net.DialTimeout("tcp", addr, timeout)
+	latency := time.Since(start).Seconds()
+	
+	p.LastVerified = nowUnix()
+	
+	if err != nil {
+		p.Alive = false
+		p.FailCount++
+		// Penalize score on failure: score * 0.7
+		p.Score = math.Max(p.Score*0.7, 0.0)
+		return
+	}
+	conn.Close()
+	
+	p.Alive = true
+	p.FailCount = 0
+	
+	// Update latency with recent measurement (weighted average to smooth: 0.6 old + 0.4 new)
+	if p.Latency > 0 {
+		p.Latency = p.Latency*0.6 + latency*0.4
+	} else {
+		p.Latency = latency
+	}
+	
+	// Slight score boost for surviving proxies: (score * 0.95 + 0.05)
+	p.Score = math.Min(p.Score*0.95+0.05, 1.0)
+}
+
+// internalVerifyPool verifies a slice of proxies concurrently with bounded concurrency.
+func internalVerifyPool(proxies []Proxy, maxConcurrent int) []Proxy {
+	if maxConcurrent <= 0 {
+		maxConcurrent = MaxConcurrentVerifications
+	}
+	
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, maxConcurrent)
+	
+	// Results will be updated in-place on the slice elements
+	for i := range proxies {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			sem <- struct{}{}
+			internalVerifyProxy(&proxies[idx], DefaultVerifyTimeout)
+			<-sem
+		}(i)
+	}
+	
+	wg.Wait()
+	
+	// Prune proxies with fail_count >= MaxFailCount
+	survivors := []Proxy{}
+	for _, p := range proxies {
+		if p.FailCount < MaxFailCount {
+			survivors = append(survivors, p)
+		}
+	}
+	
+	return survivors
+}

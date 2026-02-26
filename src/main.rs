@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use log::{error, info, warn};
 use rotator_rs::types::{Proxy, RotationDecision};
-use rotator_rs::{polish, rotator, tunnel, verifier};
+use rotator_rs::{polish, rotator, tunnel};
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
@@ -90,35 +90,6 @@ async fn main() -> Result<()> {
             } else {
                 error!("Failed to build chain. Run 'full' or 'scrape' first to populate pools.");
             }
-        }
-        "refresh" => {
-            // Load existing pool, re-verify, fill delta if needed
-            let combined = load_proxies(&workspace.join("proxies_combined.json"))?;
-            info!("Loaded {} proxies from stored pool", combined.len());
-
-            let verified = verifier::verify_pool(combined).await;
-
-            // If unhealthy (too few alive), scrape fresh and merge
-            let needs_scrape = !verifier::is_pool_healthy(&verified, 6 * 3600) || cli.force_scrape;
-            let refreshed = if needs_scrape {
-                warn!("Pool is stale or too small — scraping fresh proxies to fill delta...");
-                let raw = run_scraper(&workspace, cli.limit, &cli.protocol)?;
-                let mut merged = verified;
-                merged.extend(raw);
-                merged
-            } else {
-                info!("Pool is healthy — skipping scrape");
-                verified
-            };
-
-            let (dns, non_dns, combined) = run_polish(&workspace, refreshed)?;
-            let decision = rotator::build_chain_decision(&cli.mode, &dns, &non_dns, &combined);
-            if let Some(d) = decision {
-                print_decision(&d);
-            } else {
-                error!("Failed to build chain after refresh");
-            }
-            print_summary(combined.len(), dns.len(), non_dns.len());
         }
         "full" => {
             let raw = run_scraper(&workspace, cli.limit, &cli.protocol)?;

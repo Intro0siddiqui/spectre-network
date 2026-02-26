@@ -6,12 +6,10 @@ import (
 
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gocolly/colly/v2"
@@ -368,19 +366,6 @@ func scrapeFreeProxyWorld(ctx context.Context, protocol string, limit int, ch ch
 }
 func scrapeMoreGitHubProxies(ctx context.Context, limit int, ch chan<- []Proxy) { ch <- nil }
 
-func validateProxy(p Proxy, ch chan<- Proxy) {
-	addr := fmt.Sprintf("%s:%d", p.IP, p.Port)
-	start := time.Now()
-	conn, err := net.DialTimeout("tcp", addr, ValidationTimeout)
-	latency := time.Since(start).Seconds()
-	if err != nil {
-		ch <- Proxy{IP: p.IP, Port: p.Port, Proto: p.Proto, Latency: 0}
-		return
-	}
-	conn.Close()
-	ch <- Proxy{IP: p.IP, Port: p.Port, Proto: p.Proto, Latency: latency}
-}
-
 func internalRunScraper(limit int, protocol string) []Proxy {
 	workers := DefaultWorkers
 	ch := make(chan []Proxy, 30)
@@ -446,26 +431,12 @@ collector:
 		}
 	}
 
-	validCh := make(chan Proxy, len(unique))
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, workers)
-	for _, p := range unique {
-		wg.Add(1)
-		go func(proxy Proxy) {
-			defer wg.Done()
-			sem <- struct{}{}
-			validateProxy(proxy, validCh)
-			<-sem
-		}(p)
-	}
-	go func() { wg.Wait(); close(validCh) }()
-
+	verified := internalVerifyPool(unique, workers)
 	validated := []Proxy{}
-	for p := range validCh {
-		if p.Latency > 0 && p.Proto != "" {
+	for _, p := range verified {
+		if p.Alive && p.Proto != "" {
 			validated = append(validated, p)
 		}
 	}
-
 	return validated
 }

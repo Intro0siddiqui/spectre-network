@@ -5,7 +5,6 @@ package main
 #include <stdlib.h>
 
 extern char* run_polish_c(const char* raw_json);
-extern char* run_verify_c(const char* proxies_json);
 extern char* build_chain_decision_c(const char* mode, const char* dns_json, const char* non_dns_json, const char* combined_json);
 extern char* build_chain_topology_c(const char* mode, const char* dns_json, const char* non_dns_json, const char* combined_json);
 extern char* derive_keys_from_secret_c(const char* master_secret, const char* chain_id, int num_hops);
@@ -40,14 +39,17 @@ func col(c, s string) string { return c + s + reset }
 
 // ── Data types ────────────────────────────────────────────────────────────────
 type Proxy struct {
-	IP        string  `json:"ip,omitempty"`
-	Port      uint16  `json:"port,omitempty"`
-	Proto     string  `json:"type,omitempty"`
-	Latency   float64 `json:"latency,omitempty"`
-	Country   string  `json:"country,omitempty"`
-	Anonymity string  `json:"anonymity,omitempty"`
-	Score     float64 `json:"score,omitempty"`
-	Tier      string  `json:"tier"` // Assigned by Rust polish - do not omit to preserve tier data across FFI
+	IP           string  `json:"ip,omitempty"`
+	Port         uint16  `json:"port,omitempty"`
+	Proto        string  `json:"type,omitempty"`
+	Latency      float64 `json:"latency,omitempty"`
+	Country      string  `json:"country,omitempty"`
+	Anonymity    string  `json:"anonymity,omitempty"`
+	Score        float64 `json:"score,omitempty"`
+	Tier         string  `json:"tier"` // Assigned by Rust polish - do not omit to preserve tier data across FFI
+	FailCount    uint32  `json:"fail_count"`
+	LastVerified uint64  `json:"last_verified"`
+	Alive        bool    `json:"alive"`
 }
 
 type PolishResult struct {
@@ -314,36 +316,8 @@ func cmdRefresh(workspace, mode string, limit int, protocol string) {
 }
 
 func runVerify(workspace string, proxies []Proxy) (dns, nonDNS, combined []Proxy, err error) {
-	// We verify in batches of 500 to avoid CGO deadlocks with excessively large JSON/tasks
-	batchSize := 500
-	var verified []Proxy
-
-	for i := 0; i < len(proxies); i += batchSize {
-		end := i + batchSize
-		if end > len(proxies) {
-			end = len(proxies)
-		}
-		batch := proxies[i:end]
-		fmt.Printf("  %s Verifying batch %d/%d...\n", col(dim, "→"), (i/batchSize)+1, (len(proxies)/batchSize)+1)
-
-		batchJSON, _ := json.Marshal(batch)
-		cRaw := C.CString(string(batchJSON))
-		cOut := C.run_verify_c(cRaw)
-		C.free(unsafe.Pointer(cRaw))
-
-		if cOut == nil {
-			return nil, nil, nil, fmt.Errorf("rust verifier returned null for batch starting at %d", i)
-		}
-
-		var batchResult []Proxy
-		if err := json.Unmarshal([]byte(C.GoString(cOut)), &batchResult); err != nil {
-			C.free_c_string(cOut)
-			return nil, nil, nil, fmt.Errorf("parse verify result: %v", err)
-		}
-		C.free_c_string(cOut)
-		verified = append(verified, batchResult...)
-	}
-
+	fmt.Printf("  %s Verifying pool of %d proxies...\n", col(dim, "→"), len(proxies))
+	verified := internalVerifyPool(proxies, MaxConcurrentVerifications)
 	// Re-run polish on verified proxies to update pools and scores
 	return runPolish(workspace, verified)
 }
@@ -472,10 +446,10 @@ func printHelp() {
 
   %s               Full pipeline: scrape → polish → build chain
   %s            Re-verify stored pool, fill gaps, build chain
-  spectre rotate  [--mode M]            Build chain from stored pool (no scrape)
+  %s  [--mode M]            Build chain from stored pool (no scrape)
   spectre serve   [--mode M] [--port P]  Start SOCKS5 proxy server (default port: 1080)
-  spectre stats                          Show pool health stats
-  spectre audit                          Run containerised security audit (needs Podman)
+  %s                          Show pool health stats
+  %s                          Run containerised security audit (needs Podman)
 
 %s
   --mode      phantom | high | stealth | lite   (default: phantom)
@@ -497,7 +471,8 @@ func printHelp() {
 
 `,
 		col(bold, "USAGE:  spectre <command> [flags]"),
-		col(cyan+bold, "run"), col(cyan+bold, "refresh"), col(cyan+bold, "rotate"), col(cyan+bold, "stats"), col(cyan+bold, "audit"),
+		col(cyan+bold, "run"), col(cyan+bold, "refresh"),
+		col(cyan+bold, "rotate"), col(cyan+bold, "stats"), col(cyan+bold, "audit"),
 		col(bold, "FLAGS:"),
 		col(bold, "EXAMPLES:"),
 		col(bold, "FEATURES:"),

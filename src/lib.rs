@@ -23,7 +23,6 @@ pub mod polish;
 pub mod rotator;
 pub mod tunnel;
 pub mod types;
-pub mod verifier;
 
 #[cfg(feature = "python")]
 use types::Proxy;
@@ -358,80 +357,6 @@ pub extern "C" fn run_polish_c(raw_json: *const c_char) -> *mut c_char {
     );
 
     // Return null pointer on panic or error
-    result.unwrap_or(std::ptr::null_mut())
-}
-
-#[no_mangle]
-pub extern "C" fn run_verify_c(proxies_json: *const c_char) -> *mut c_char {
-    init_logger();
-    let result = catch_unwind_ffi(
-        || {
-            if proxies_json.is_null() {
-                log::error!("run_verify_c: proxies_json is null");
-                return None;
-            }
-
-            let c_str = unsafe { CStr::from_ptr(proxies_json) };
-            let json_str = match c_str.to_str() {
-                Ok(s) => s,
-                Err(e) => {
-                    log::error!("run_verify_c: Invalid UTF-8 in proxies_json: {}", e);
-                    return None;
-                }
-            };
-
-            let proxies: Vec<types::Proxy> = match serde_json::from_str(json_str) {
-                Ok(p) => p,
-                Err(e) => {
-                    log::error!("run_verify_c: Failed to parse proxies JSON: {}", e);
-                    return None;
-                }
-            };
-
-            // Run in a separate thread to isolate Tokio runtime from CGO's thread scheduler.
-            // This is CRITICAL to prevent deadlocks when CGO threads park.
-            let handle = std::thread::spawn(move || {
-                let rt = match tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                {
-                    Ok(r) => r,
-                    Err(e) => {
-                        log::error!("run_verify_c: Failed to build tokio runtime: {}", e);
-                        return None;
-                    }
-                };
-
-                Some(rt.block_on(verifier::verify_pool(proxies)))
-            });
-
-            let verified = match handle.join() {
-                Ok(Some(v)) => v,
-                _ => {
-                    log::error!("run_verify_c: Tokio thread panicked or runtime failed");
-                    return None;
-                }
-            };
-
-            let out_json = match serde_json::to_string(&verified) {
-                Ok(s) => s,
-                Err(e) => {
-                    log::error!("run_verify_c: Failed to serialize verified proxies: {}", e);
-                    return None;
-                }
-            };
-
-            match CString::new(out_json) {
-                Ok(c_string) => Some(c_string.into_raw()),
-                Err(e) => {
-                    log::error!("run_verify_c: Failed to create C string from result: {}", e);
-                    None
-                }
-            }
-        },
-        "run_verify_c",
-    );
-
     result.unwrap_or(std::ptr::null_mut())
 }
 
