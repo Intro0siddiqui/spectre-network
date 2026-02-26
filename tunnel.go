@@ -121,10 +121,6 @@ func encryptedPipe(client, server net.Conn, keyHex, nonceHex string) error {
 	return <-errCh
 }
 
-	// Wait for any side to finish or error
-	return <-errCh
-}
-
 func encryptWithCounter(keyHex, nonceHex string, counter uint64, plaintext []byte) ([]byte, error) {
 	cKey := C.CString(keyHex)
 	defer C.free(unsafe.Pointer(cKey))
