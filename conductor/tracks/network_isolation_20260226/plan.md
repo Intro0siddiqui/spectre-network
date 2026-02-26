@@ -5,18 +5,18 @@ Enforce the architectural boundary between Go and Rust. Rust must be isolated fr
 
 ## Phase 1: Migrate Verifier Logic to Go
 
-- [ ] **Task: Implement Go-based Verifier**
+- [x] **Task: Implement Go-based Verifier**
   - [ ] Write failing unit tests in Go for proxy reachability and validation.
   - [ ] Implement `internalVerifyProxy` in Go with TCP connection tests and timeouts.
   - [ ] Port the scoring weights and latency measurement logic from Rust's `verifier.rs` to Go.
   - [ ] Verify coverage (>80%) for the new Go verifier.
 
-- [ ] **Task: Refactor Orchestrator to use Go Verifier**
+- [x] **Task: Refactor Orchestrator to use Go Verifier**
   - [ ] Modify `internalRunScraper` to invoke the Go verifier.
   - [ ] Ensure the Go verifier correctly populates the `Proxy` struct with latency, country, and status before FFI calls.
   - [ ] Commit changes with task summary.
 
-- [ ] **Task: Remove Rust Verifier Logic**
+- [x] **Task: Remove Rust Verifier Logic**
   - [ ] Delete `src/verifier.rs` and its module declaration in `src/lib.rs`.
   - [ ] Remove `run_verify_c` and other validation-related FFI exports.
   - [ ] Ensure Rust's `polish` logic now accepts pre-validated proxies.
