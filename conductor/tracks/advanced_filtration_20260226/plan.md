@@ -3,7 +3,7 @@
 ## Goal
 Optimize proxy validation speed, implement infrastructure diversity, and refine layered encryption to support high-quality third-party proxy sources.
 
-## Phase 1: Go-Layer Validation & Source Enhancements
+## Phase 1: Go-Layer Validation & Source Enhancements [checkpoint: 3cfdf36]
 
 - [x] **Task: Implement Validation Worker Pool** [a59828d]
   - [x] Create `internal/pool` package for generic worker management.
@@ -16,7 +16,7 @@ Optimize proxy validation speed, implement infrastructure diversity, and refine 
   - [x] Implement a command to manually add "Premium" proxy endpoints (e.g., from Nord free tiers).
   - [x] Write tests ensuring Premium proxies are prioritized during chain selection.
 
-- [ ] **Task: Conductor - User Manual Verification 'Phase 1: Go-Layer Validation & Source Enhancements' (Protocol in workflow.md)**
+- [x] **Task: Conductor - User Manual Verification 'Phase 1: Go-Layer Validation & Source Enhancements' (Protocol in workflow.md)**
 
 ## Phase 2: Rust-Layer Diversity & Advanced Scoring
 
