@@ -472,10 +472,10 @@ func printHelp() {
 
   %s               Full pipeline: scrape → polish → build chain
   %s            Re-verify stored pool, fill gaps, build chain
-  spectre rotate  [--mode M]            Build chain from stored pool (no scrape)
-  spectre serve   [--mode M] [--port P]  Start SOCKS5 proxy server (default port: 1080)
-  spectre stats                          Show pool health stats
-  spectre audit                          Run containerised security audit (needs Podman)
+  spectre %s  [--mode M]            Build chain from stored pool (no scrape)
+  spectre %s   [--mode M] [--port P]  Start SOCKS5 proxy server (default port: 1080)
+  spectre %s                          Show pool health stats
+  spectre %s                          Run containerised security audit (needs Podman)
 
 %s
   --mode      phantom | high | stealth | lite   (default: phantom)
@@ -497,7 +497,12 @@ func printHelp() {
 
 `,
 		col(bold, "USAGE:  spectre <command> [flags]"),
-		col(cyan+bold, "run"), col(cyan+bold, "refresh"), col(cyan+bold, "rotate"), col(cyan+bold, "stats"), col(cyan+bold, "audit"),
+		col(cyan+bold, "run"),
+		col(cyan+bold, "refresh"),
+		col(cyan+bold, "rotate"),
+		col(cyan+bold, "serve"),
+		col(cyan+bold, "stats"),
+		col(cyan+bold, "audit"),
 		col(bold, "FLAGS:"),
 		col(bold, "EXAMPLES:"),
 		col(bold, "FEATURES:"),
