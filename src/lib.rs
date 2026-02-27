@@ -961,6 +961,82 @@ pub extern "C" fn decrypt_with_counter_c(
 }
 
 #[no_mangle]
+pub extern "C" fn encrypt_layered_c(
+    keys_ptr: *const [u8; 32],
+    nonces_ptr: *const [u8; 12],
+    num_hops: usize,
+    counter: u64,
+    plaintext: *const u8,
+    plaintext_len: usize,
+    out_len: *mut usize,
+) -> *mut u8 {
+    init_logger();
+    let result = catch_unwind_ffi(
+        || {
+            if keys_ptr.is_null() || nonces_ptr.is_null() || plaintext.is_null() || out_len.is_null() {
+                return None;
+            }
+
+            let keys = unsafe { std::slice::from_raw_parts(keys_ptr, num_hops) };
+            let nonces = unsafe { std::slice::from_raw_parts(nonces_ptr, num_hops) };
+            let data = unsafe { std::slice::from_raw_parts(plaintext, plaintext_len) };
+
+            let encrypted = crypto::encrypt_layered(keys, nonces, counter, data).ok()?;
+            
+            unsafe {
+                *out_len = encrypted.len();
+            }
+            
+            let mut encrypted_boxed = encrypted.into_boxed_slice();
+            let ptr = encrypted_boxed.as_mut_ptr();
+            std::mem::forget(encrypted_boxed);
+            Some(ptr)
+        },
+        "encrypt_layered_c",
+    );
+
+    result.unwrap_or(std::ptr::null_mut())
+}
+
+#[no_mangle]
+pub extern "C" fn decrypt_layered_c(
+    keys_ptr: *const [u8; 32],
+    nonces_ptr: *const [u8; 12],
+    num_hops: usize,
+    counter: u64,
+    ciphertext: *const u8,
+    ciphertext_len: usize,
+    out_len: *mut usize,
+) -> *mut u8 {
+    init_logger();
+    let result = catch_unwind_ffi(
+        || {
+            if keys_ptr.is_null() || nonces_ptr.is_null() || ciphertext.is_null() || out_len.is_null() {
+                return None;
+            }
+
+            let keys = unsafe { std::slice::from_raw_parts(keys_ptr, num_hops) };
+            let nonces = unsafe { std::slice::from_raw_parts(nonces_ptr, num_hops) };
+            let data = unsafe { std::slice::from_raw_parts(ciphertext, ciphertext_len) };
+
+            let decrypted = crypto::decrypt_layered(keys, nonces, counter, data).ok()?;
+            
+            unsafe {
+                *out_len = decrypted.len();
+            }
+            
+            let mut decrypted_boxed = decrypted.into_boxed_slice();
+            let ptr = decrypted_boxed.as_mut_ptr();
+            std::mem::forget(decrypted_boxed);
+            Some(ptr)
+        },
+        "decrypt_layered_c",
+    );
+
+    result.unwrap_or(std::ptr::null_mut())
+}
+
+#[no_mangle]
 pub extern "C" fn free_byte_array(ptr: *mut u8, len: usize) {
     if !ptr.is_null() {
         unsafe {

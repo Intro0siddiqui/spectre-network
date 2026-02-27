@@ -90,6 +90,68 @@ pub fn decrypt_with_counter(
         .map_err(|e| anyhow::anyhow!("AES-GCM decrypt error: {}", e))
 }
 
+/// Encrypt `plaintext` through multiple layers of AES-256-GCM.
+///
+/// `keys`         — slice of 32-byte keys
+/// `base_nonces`  — slice of 12-byte base nonces
+/// `counter`      — 64-bit packet counter
+/// `plaintext`    — data to encrypt
+///
+/// Outbound onion routing: Encrypts from last hop to first hop.
+pub fn encrypt_layered(
+    keys: &[[u8; 32]],
+    base_nonces: &[[u8; 12]],
+    counter: u64,
+    plaintext: &[u8],
+) -> Result<Vec<u8>> {
+    if keys.len() != base_nonces.len() {
+        anyhow::bail!("keys and nonces length mismatch");
+    }
+    let mut payload = plaintext.to_vec();
+    // Outbound: Encrypt in reverse order (Exit -> Middle -> Entry)
+    for (key_bytes, base_nonce) in keys.iter().zip(base_nonces.iter()).rev() {
+        let derived_nonce = derive_nonce(base_nonce, counter);
+        let key = Key::<Aes256Gcm>::from_slice(key_bytes);
+        let cipher = Aes256Gcm::new(key);
+        let nonce = Nonce::from_slice(&derived_nonce);
+        payload = cipher
+            .encrypt(nonce, payload.as_slice())
+            .map_err(|e| anyhow::anyhow!("AES-GCM layered encrypt error: {}", e))?;
+    }
+    Ok(payload)
+}
+
+/// Decrypt `ciphertext` through multiple layers of AES-256-GCM.
+///
+/// `keys`         — slice of 32-byte keys
+/// `base_nonces`  — slice of 12-byte base nonces
+/// `counter`      — 64-bit packet counter
+/// `ciphertext`   — data to decrypt
+///
+/// Inbound onion routing: Decrypts from first hop to last hop.
+pub fn decrypt_layered(
+    keys: &[[u8; 32]],
+    base_nonces: &[[u8; 12]],
+    counter: u64,
+    ciphertext: &[u8],
+) -> Result<Vec<u8>> {
+    if keys.len() != base_nonces.len() {
+        anyhow::bail!("keys and nonces length mismatch");
+    }
+    let mut payload = ciphertext.to_vec();
+    // Inbound: Decrypt in forward order (Entry -> Middle -> Exit)
+    for (key_bytes, base_nonce) in keys.iter().zip(base_nonces.iter()) {
+        let derived_nonce = derive_nonce(base_nonce, counter);
+        let key = Key::<Aes256Gcm>::from_slice(key_bytes);
+        let cipher = Aes256Gcm::new(key);
+        let nonce = Nonce::from_slice(&derived_nonce);
+        payload = cipher
+            .decrypt(nonce, payload.as_slice())
+            .map_err(|e| anyhow::anyhow!("AES-GCM layered decrypt error: {}", e))?;
+    }
+    Ok(payload)
+}
+
 /// Encrypt `plaintext` with AES-256-GCM (legacy function, kept for compatibility).
 ///
 /// `key_hex`   — 32-byte key encoded as 64 hex chars (from `CryptoHop`)

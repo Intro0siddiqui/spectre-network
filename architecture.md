@@ -40,7 +40,12 @@ The **Go-native Health Check System**. Performs live TCP reachability tests, mea
 The **Go-native SOCKS5 Server & Multi-hop Tunnel**.
 - Implements the SOCKS5 interface for incoming client connections.
 - Negotiates multi-hop proxy circuits (SOCKS5 or HTTP CONNECT) through chains of 1 to 5 proxies.
-- Implements the `encryptedPipe` function, which pumps data with AES-256-GCM encryption using Rust primitives.
+- Implements the `encryptedPipeGarlic` function, which pumps data with efficient multi-layered AES-256-GCM encryption.
+- **Efficient Layered Encryption:** Uses a single FFI call to Rust to apply all encryption/decryption layers, minimizing CGO overhead.
+- **Garlic Routing Features:** 
+  - **Packet Padding:** Every packet is padded to a 512-byte multiple to hide traffic size.
+  - **Chaffing:** Sends dummy packets during idle periods to obscure traffic timing.
+  - **Dual-Path Routing:** Supports separate outbound and inbound circuits when the `--garlic` flag is active.
 - Features automatic proxy rotation on connection failure.
 
 **`security-audit/`**

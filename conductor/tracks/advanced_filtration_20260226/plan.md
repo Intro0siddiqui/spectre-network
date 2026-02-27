@@ -33,21 +33,21 @@ Optimize proxy validation speed, implement infrastructure diversity, and refine 
 
 - [x] **Task: Conductor - User Manual Verification 'Phase 2: Rust-Layer Diversity & Advanced Scoring' (Protocol in workflow.md)**
 
-## Phase 3: Encryption Layering & Final Integration
+## Phase 3: Encryption Layering & Final Integration [checkpoint: 52a1b9e]
 
-- [ ] **Task: Refine Multi-Layered Encryption**
-  - [ ] Review `src/crypto.rs` to ensure strict encapsulation of encrypted payloads.
-  - [ ] Write a Go integration test that simulates a 3-hop chain and verifies payload integrity.
-  - [ ] Ensure `tunnel.go` correctly applies the layered keys derived by Rust.
+- [x] **Task: Refine Multi-Layered Encryption** [804473f]
+  - [x] Review `src/crypto.rs` to ensure strict encapsulation of encrypted payloads.
+  - [x] Write a Go integration test that simulates a 3-hop chain and verifies payload integrity.
+  - [x] Ensure `tunnel.go` correctly applies the layered keys derived by Rust.
 
-- [ ] **Task: Experimental Garlic-Hybrid Implementation**
-  - [ ] Add `--garlic` flag support to `orchestrator.go` CLI.
-  - [ ] Update `tunnel.go` to support dual-path (split outbound/inbound) routing when the `--garlic` flag is active.
-  - [ ] Implement basic packet padding/chaffing in `encryptedPipe`.
+- [x] **Task: Experimental Garlic-Hybrid Implementation** [6c3d921]
+  - [x] Add `--garlic` flag support to `orchestrator.go` CLI.
+  - [x] Update `tunnel.go` to support dual-path (split outbound/inbound) routing when the `--garlic` flag is active.
+  - [x] Implement basic packet padding/chaffing in `encryptedPipe`.
 
-- [ ] **Task: Final Integration & Performance Audit**
-  - [ ] Run `spectre audit` to confirm anonymity grades remain high.
-  - [ ] Run `benchmark.sh` to ensure the worker pool improves scraping speed for large pools.
-  - [ ] Update `architecture.md` with details on the new filtration and diversity logic.
+- [x] **Task: Final Integration & Performance Audit** [f4d92e1]
+  - [x] Run `spectre audit` to confirm anonymity grades remain high.
+  - [x] Run `benchmark.sh` to ensure the worker pool improves scraping speed for large pools.
+  - [x] Update `architecture.md` with details on the new filtration and diversity logic.
 
-- [ ] **Task: Conductor - User Manual Verification 'Phase 3: Encryption Layering & Final Integration' (Protocol in workflow.md)**
+- [x] **Task: Conductor - User Manual Verification 'Phase 3: Encryption Layering & Final Integration' (Protocol in workflow.md)** [f4d92e1]

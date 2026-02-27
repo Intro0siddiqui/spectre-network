@@ -4,12 +4,15 @@ package main
 #include <stdlib.h>
 extern unsigned char* encrypt_with_counter_c(const char* key_hex, const char* nonce_hex, unsigned long long counter, const unsigned char* plaintext, size_t plaintext_len, size_t* out_len);
 extern unsigned char* decrypt_with_counter_c(const char* key_hex, const char* nonce_hex, unsigned long long counter, const unsigned char* ciphertext, size_t ciphertext_len, size_t* out_len);
+extern unsigned char* encrypt_layered_c(const void* keys_ptr, const void* nonces_ptr, size_t num_hops, unsigned long long counter, const unsigned char* plaintext, size_t plaintext_len, size_t* out_len);
+extern unsigned char* decrypt_layered_c(const void* keys_ptr, const void* nonces_ptr, size_t num_hops, unsigned long long counter, const unsigned char* ciphertext, size_t ciphertext_len, size_t* out_len);
 extern void free_byte_array(unsigned char* ptr, size_t len);
 */
 import "C"
 
 import (
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net"
@@ -24,56 +27,139 @@ const (
 	ChunkSize = 16 * 1024
 )
 
-// encryptedPipe pumps data between client and server with AES-GCM encryption.
-func encryptedPipe(client, server net.Conn, keyHex, nonceHex string) error {
+type CryptoSession struct {
+	Keys   [][32]byte
+	Nonces [][12]byte
+}
+
+func NewCryptoSession(hops []CryptoHop) (*CryptoSession, error) {
+	s := &CryptoSession{
+		Keys:   make([][32]byte, len(hops)),
+		Nonces: make([][12]byte, len(hops)),
+	}
+	for i, h := range hops {
+		k, err := hex.DecodeString(h.KeyHex)
+		if err != nil || len(k) != 32 {
+			return nil, fmt.Errorf("invalid key hex at hop %d", i+1)
+		}
+		copy(s.Keys[i][:], k)
+
+		n, err := hex.DecodeString(h.NonceHex)
+		if err != nil || len(n) != 12 {
+			return nil, fmt.Errorf("invalid nonce hex at hop %d", i+1)
+		}
+		copy(s.Nonces[i][:], n)
+	}
+	return s, nil
+}
+
+// encryptedPipe pumps data between client and server with multi-layered AES-GCM encryption.
+func encryptedPipeGarlic(client, serverOut, serverIn net.Conn, cryptoHops []CryptoHop, garlic bool) error {
+	session, err := NewCryptoSession(cryptoHops)
+	if err != nil {
+		return err
+	}
+
 	errCh := make(chan error, 2)
 
-	// Outbound: client -> server (encrypt)
+	// Outbound: client -> serverOut (encrypt in reverse order: from exit hop to entry hop)
 	go func() {
 		buf := make([]byte, ChunkSize)
 		var counter uint64 = 0
+		
+		// Chaffing ticker: send a dummy packet every 2-5 seconds if idle
+		chaffTicker := time.NewTicker(3 * time.Second)
+		defer chaffTicker.Stop()
+		
 		for {
-			n, err := client.Read(buf)
-			if n > 0 {
-				encrypted, err := encryptWithCounter(keyHex, nonceHex, counter, buf[:n])
-				if err != nil {
-					errCh <- err
-					return
+			select {
+			case <-chaffTicker.C:
+				if !garlic {
+					continue
 				}
-
-				// Frame: [8-byte counter][4-byte LE length][ciphertext]
-				frameHead := make([]byte, 12)
-				binary.LittleEndian.PutUint64(frameHead[0:8], counter)
-				binary.LittleEndian.PutUint32(frameHead[8:12], uint32(len(encrypted)))
+				// Send a dummy packet (chaff)
+				dummy := make([]byte, 510) // 512 total with header
+				// length = 0 means dummy
+				payload := make([]byte, 512)
+				binary.LittleEndian.PutUint16(payload[0:2], 0)
+				copy(payload[2:], dummy)
 				
-				if _, err := server.Write(frameHead); err != nil {
-					errCh <- err
-					return
+				encrypted, err := encryptLayered(session, counter, payload)
+				if err == nil {
+					frameHead := make([]byte, 12)
+					binary.LittleEndian.PutUint64(frameHead[0:8], counter)
+					binary.LittleEndian.PutUint32(frameHead[8:12], uint32(len(encrypted)))
+					serverOut.Write(frameHead)
+					serverOut.Write(encrypted)
+					counter++
 				}
-				if _, err := server.Write(encrypted); err != nil {
-					errCh <- err
-					return
+				
+			default:
+				client.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+				n, err := client.Read(buf)
+				client.SetReadDeadline(time.Time{})
+				
+				if n > 0 {
+					payload := buf[:n]
+
+					// Garlic padding: Pad payload to a multiple of 512 bytes to obscure traffic shape
+					if garlic {
+						padLen := 512 - (len(payload) % 512)
+						if padLen == 512 {
+							padLen = 0
+						}
+						// 2 bytes for original length, then payload, then padding
+						padded := make([]byte, 2+len(payload)+padLen)
+						binary.LittleEndian.PutUint16(padded[0:2], uint16(len(payload)))
+						copy(padded[2:], payload)
+						payload = padded
+					}
+
+					// Apply all encryption layers in one FFI call
+					payload, err = encryptLayered(session, counter, payload)
+					if err != nil {
+						errCh <- err
+						return
+					}
+
+					// Frame: [8-byte counter][4-byte LE length][ciphertext]
+					frameHead := make([]byte, 12)
+					binary.LittleEndian.PutUint64(frameHead[0:8], counter)
+					binary.LittleEndian.PutUint32(frameHead[8:12], uint32(len(payload)))
+
+					if _, err := serverOut.Write(frameHead); err != nil {
+						errCh <- err
+						return
+					}
+					if _, err := serverOut.Write(payload); err != nil {
+						errCh <- err
+						return
+					}
+					counter++
+					chaffTicker.Reset(3 * time.Second) // Reset idle timer
 				}
-				counter++
-			}
-			if err != nil {
-				if err != io.EOF {
-					errCh <- err
-				} else {
-					errCh <- nil
+				
+				if err != nil {
+					if err != io.EOF && !strings.Contains(err.Error(), "timeout") {
+						errCh <- err
+						return
+					}
+					if err == io.EOF {
+						errCh <- nil
+						return
+					}
+					// If timeout, just loop back and wait for more data or chaff
 				}
-				return
 			}
 		}
 	}()
 
-	// Inbound: server -> client (decrypt)
+	// Inbound: serverIn -> client (decrypt in forward order: entry hop to exit hop)
 	go func() {
-		var counter uint64
 		for {
 			// Read 8-byte counter
 			counterBuf := make([]byte, 8)
-			if _, err := io.ReadFull(server, counterBuf); err != nil {
+			if _, err := io.ReadFull(serverIn, counterBuf); err != nil {
 				if err != io.EOF {
 					errCh <- err
 				} else {
@@ -85,40 +171,94 @@ func encryptedPipe(client, server net.Conn, keyHex, nonceHex string) error {
 
 			// Read 4-byte length
 			lenBuf := make([]byte, 4)
-			if _, err := io.ReadFull(server, lenBuf); err != nil {
+			if _, err := io.ReadFull(serverIn, lenBuf); err != nil {
 				errCh <- err
 				return
 			}
 			length := binary.LittleEndian.Uint32(lenBuf)
-			if length == 0 || length > ChunkSize*2 {
+			if length == 0 || length > ChunkSize*2 { // Allow larger chunks for multi-layer overhead
 				errCh <- fmt.Errorf("invalid frame length: %d", length)
 				return
 			}
 
 			// Read ciphertext
-			ciphertext := make([]byte, length)
-			if _, err := io.ReadFull(server, ciphertext); err != nil {
+			payload := make([]byte, length)
+			if _, err := io.ReadFull(serverIn, payload); err != nil {
 				errCh <- err
 				return
 			}
 
-			// Decrypt
-			decrypted, err := decryptWithCounter(keyHex, nonceHex, receivedCounter, ciphertext)
+			// Decrypt all layers in one FFI call
+			var err error
+			payload, err = decryptLayered(session, receivedCounter, payload)
 			if err != nil {
 				errCh <- err
 				return
 			}
 
-			if _, err := client.Write(decrypted); err != nil {
+			// Remove Garlic padding
+			if garlic {
+				if len(payload) >= 2 {
+					origLen := binary.LittleEndian.Uint16(payload[0:2])
+					if origLen == 0 {
+						// This is a dummy (chaff) packet, discard and continue
+						continue
+					}
+					if int(origLen) <= len(payload)-2 {
+						payload = payload[2 : 2+origLen]
+					}
+				}
+			}
+
+			if _, err := client.Write(payload); err != nil {
 				errCh <- err
 				return
 			}
-			counter++
 		}
 	}()
 
 	// Wait for any side to finish or error
 	return <-errCh
+}
+
+func encryptLayered(s *CryptoSession, counter uint64, plaintext []byte) ([]byte, error) {
+	var outLen C.size_t
+	cOut := C.encrypt_layered_c(
+		unsafe.Pointer(&s.Keys[0]),
+		unsafe.Pointer(&s.Nonces[0]),
+		C.size_t(len(s.Keys)),
+		C.ulonglong(counter),
+		(*C.uchar)(unsafe.Pointer(&plaintext[0])),
+		C.size_t(len(plaintext)),
+		&outLen,
+	)
+
+	if cOut == nil {
+		return nil, fmt.Errorf("layered encryption failed in Rust")
+	}
+	defer C.free_byte_array((*C.uchar)(cOut), outLen)
+
+	return C.GoBytes(unsafe.Pointer(cOut), C.int(outLen)), nil
+}
+
+func decryptLayered(s *CryptoSession, counter uint64, ciphertext []byte) ([]byte, error) {
+	var outLen C.size_t
+	cOut := C.decrypt_layered_c(
+		unsafe.Pointer(&s.Keys[0]),
+		unsafe.Pointer(&s.Nonces[0]),
+		C.size_t(len(s.Keys)),
+		C.ulonglong(counter),
+		(*C.uchar)(unsafe.Pointer(&ciphertext[0])),
+		C.size_t(len(ciphertext)),
+		&outLen,
+	)
+
+	if cOut == nil {
+		return nil, fmt.Errorf("layered decryption failed in Rust")
+	}
+	defer C.free_byte_array((*C.uchar)(cOut), outLen)
+
+	return C.GoBytes(unsafe.Pointer(cOut), C.int(outLen)), nil
 }
 
 func encryptWithCounter(keyHex, nonceHex string, counter uint64, plaintext []byte) ([]byte, error) {
@@ -193,7 +333,7 @@ func startSOCKS5Server(port int, initialDecision RotationDecision, dnsPool, nonD
 			mu.RUnlock()
 
 			fmt.Printf("%s Health check: rotating chain for mode %s\n", col(cyan, "◈"), mode)
-			newDecision, err := buildChainDecision(mode, dnsPool, nonDNSPool, combinedPool)
+			newDecision, err := buildChainDecision(mode, dnsPool, nonDNSPool, combinedPool, currentDecision.Garlic)
 			if err == nil && newDecision != nil {
 				mu.Lock()
 				currentDecision = *newDecision
@@ -314,13 +454,27 @@ func handleSOCKS5Client(conn net.Conn, decision RotationDecision, dnsPool, nonDN
 	fmt.Printf("%s Target requested: %s\n", col(cyan, "◈"), targetAddr)
 
 	// 3. Build circuit through the chain
-	server, err := buildCircuit(decision.Chain, targetAddr, dnsPool, nonDNSPool, combinedPool, decision.Mode)
+	server, err := buildCircuit(decision.Chain, targetAddr, dnsPool, nonDNSPool, combinedPool, decision.Mode, decision.Garlic)
 	if err != nil {
 		fmt.Printf("%s Failed to build circuit: %v\n", col(red, "✗"), err)
 		return fmt.Errorf("failed to build circuit: %v", err)
 	}
 	defer server.Close()
 	fmt.Printf("%s Circuit built successfully to %s\n", col(green, "✓"), targetAddr)
+
+	var serverIn net.Conn = server
+	if decision.Garlic {
+		fmt.Printf("%s Garlic Mode: Building secondary inbound circuit...\n", col(cyan, "◈"))
+		// Attempt to build a second circuit for the inbound path
+		server2, err2 := buildCircuit(decision.Chain, targetAddr, dnsPool, nonDNSPool, combinedPool, decision.Mode, decision.Garlic)
+		if err2 == nil {
+			defer server2.Close()
+			serverIn = server2
+			fmt.Printf("%s Secondary circuit built (Dual-Path Active)\n", col(green, "✓"))
+		} else {
+			fmt.Printf("%s Secondary circuit failed, falling back to single path: %v\n", col(yellow, "⚠"), err2)
+		}
+	}
 
 	// 4. Send success to client
 	if _, err := conn.Write([]byte{0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0}); err != nil {
@@ -329,9 +483,7 @@ func handleSOCKS5Client(conn net.Conn, decision RotationDecision, dnsPool, nonDN
 
 	// 5. Pipe data — with AES-GCM encryption if keys are available
 	if len(decision.Encryption) > 0 {
-		// Use the exit hop's crypto material (last in chain)
-		exitCrypto := decision.Encryption[len(decision.Encryption)-1]
-		return encryptedPipe(conn, server, exitCrypto.KeyHex, exitCrypto.NonceHex)
+		return encryptedPipeGarlic(conn, server, serverIn, decision.Encryption, decision.Garlic)
 	}
 
 	// Fallback to plain pipe
@@ -341,14 +493,14 @@ func handleSOCKS5Client(conn net.Conn, decision RotationDecision, dnsPool, nonDN
 		errCh <- err
 	}()
 	go func() {
-		_, err := io.Copy(conn, server)
+		_, err := io.Copy(conn, serverIn)
 		errCh <- err
 	}()
 	return <-errCh
 }
 
 // buildCircuit builds a multi-hop proxy circuit with retries and live rotation.
-func buildCircuit(chain []ChainHop, target string, dnsPool, nonDNSPool, combinedPool []Proxy, mode string) (net.Conn, error) {
+func buildCircuit(chain []ChainHop, target string, dnsPool, nonDNSPool, combinedPool []Proxy, mode string, garlic bool) (net.Conn, error) {
 	if len(chain) == 0 {
 		return nil, fmt.Errorf("empty proxy chain")
 	}
@@ -361,7 +513,7 @@ func buildCircuit(chain []ChainHop, target string, dnsPool, nonDNSPool, combined
 		if attempt > 0 {
 			fmt.Printf("%s Circuit build attempt %d/%d (rotating proxies)...\n", col(dim, "→"), attempt+1, maxRetries)
 			// Rotate the chain on failure
-			newDecision, err := buildChainDecision(mode, dnsPool, nonDNSPool, combinedPool)
+			newDecision, err := buildChainDecision(mode, dnsPool, nonDNSPool, combinedPool, garlic)
 			if err == nil && newDecision != nil {
 				currentChain = newDecision.Chain
 			}
