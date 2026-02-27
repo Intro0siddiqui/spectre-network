@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"math"
 	"net"
-	"sync"
+	"spectre-network/internal/pool"
 	"time"
 )
 
@@ -59,21 +59,18 @@ func internalVerifyPool(proxies []Proxy, maxConcurrent int) []Proxy {
 		maxConcurrent = MaxConcurrentVerifications
 	}
 	
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, maxConcurrent)
+	p := pool.NewPool(maxConcurrent)
 	
 	// Results will be updated in-place on the slice elements
 	for i := range proxies {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			sem <- struct{}{}
+		idx := i
+		p.Submit(func() error {
 			internalVerifyProxy(&proxies[idx], DefaultVerifyTimeout)
-			<-sem
-		}(i)
+			return nil
+		})
 	}
 	
-	wg.Wait()
+	p.Wait()
 	
 	// Prune proxies with fail_count >= MaxFailCount
 	survivors := []Proxy{}
