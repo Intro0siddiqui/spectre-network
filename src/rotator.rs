@@ -268,6 +268,15 @@ fn generate_key_nonce<R: Rng + ?Sized>(rng: &mut R) -> (String, String) {
     (hex::encode(key), hex::encode(nonce))
 }
 
+fn get_subnet(ip: &str) -> String {
+    let parts: Vec<&str> = ip.split('.').collect();
+    if parts.len() >= 3 {
+        format!("{}.{}.{}", parts[0], parts[1], parts[2])
+    } else {
+        ip.to_string()
+    }
+}
+
 /// Weighted random selection of proxy indices based on their scores.
 /// Higher score proxies are selected more often, but with diversity control.
 ///
@@ -288,16 +297,31 @@ fn weighted_random_choice<R: Rng>(
 ) -> Vec<usize> {
     let mut selected_indices = Vec::with_capacity(num_to_select);
     let mut available: Vec<usize> = (0..pool.len()).collect();
+    let mut used_subnets = std::collections::HashSet::new();
 
     for _ in 0..num_to_select {
         if available.is_empty() {
             break;
         }
 
+        // Filter available to exclude same subnets
+        let filtered_available: Vec<usize> = available
+            .iter()
+            .cloned()
+            .filter(|&idx| !used_subnets.contains(&get_subnet(&pool[idx].ip)))
+            .collect();
+
+        // If no proxies from different subnets available, we have to relax the constraint
+        // or stop. For anonymity, we prefer to stop or pick fewer hops if needed,
+        // but for usability we'll use whatever is left if we can't meet diversity.
+        let final_pool = if filtered_available.is_empty() {
+            &available
+        } else {
+            &filtered_available
+        };
+
         // Calculate weights for available proxies using diversity exponent
-        // weight = score^(1/exponent)
-        // This prevents always selecting the same top proxies
-        let weights: Vec<f64> = available
+        let weights: Vec<f64> = final_pool
             .iter()
             .map(|&idx| {
                 let score = if pool[idx].score > 0.0 {
@@ -305,35 +329,34 @@ fn weighted_random_choice<R: Rng>(
                 } else {
                     0.5
                 };
-                // Apply diversity exponent: higher exponent = flatter distribution
                 score.powf(1.0 / diversity_exponent)
             })
             .collect();
 
         let total_weight: f64 = weights.iter().sum();
 
-        if total_weight <= 0.0 {
-            // Fallback to uniform random if all weights are zero
-            let random_idx = rng.gen_range(0..available.len());
-            selected_indices.push(available.remove(random_idx));
-            continue;
-        }
-
-        // Weighted random selection using cumulative distribution
-        let random_value = rng.gen_range(0.0..total_weight);
-        let mut cumulative = 0.0;
-        let mut chosen_position = 0;
-
-        for (i, &weight) in weights.iter().enumerate() {
-            cumulative += weight;
-            if random_value <= cumulative {
-                chosen_position = i;
-                break;
+        let chosen_idx_in_final = if total_weight <= 0.0 {
+            rng.gen_range(0..final_pool.len())
+        } else {
+            let random_value = rng.gen_range(0.0..total_weight);
+            let mut cumulative = 0.0;
+            let mut pos = 0;
+            for (i, &weight) in weights.iter().enumerate() {
+                cumulative += weight;
+                if random_value <= cumulative {
+                    pos = i;
+                    break;
+                }
             }
-        }
+            pos
+        };
 
-        // Select and remove the chosen proxy from available pool
-        selected_indices.push(available.remove(chosen_position));
+        let chosen_pool_idx = final_pool[chosen_idx_in_final];
+        selected_indices.push(chosen_pool_idx);
+        used_subnets.insert(get_subnet(&pool[chosen_pool_idx].ip));
+        
+        // Remove from global available list
+        available.retain(|&x| x != chosen_pool_idx);
     }
 
     selected_indices
@@ -993,5 +1016,30 @@ mod tests {
             let key = format!("{}:{}", p.ip, p.port);
             assert!(seen.insert(key), "Pool should be deduplicated");
         }
+    }
+
+    #[test]
+    fn test_cidr_diversity() {
+        // Setup a pool with multiple proxies in the same subnet
+        let pool = vec![
+            make_proxy("1.1.1.1", 80, "socks5", 100.0, "us", "elite", 0.9),
+            make_proxy("1.1.1.2", 80, "socks5", 100.0, "us", "elite", 0.8),
+            make_proxy("1.1.1.3", 80, "socks5", 100.0, "us", "elite", 0.7),
+            make_proxy("2.2.2.2", 80, "socks5", 100.0, "us", "elite", 0.9),
+            make_proxy("3.3.3.3", 80, "socks5", 100.0, "us", "elite", 0.9),
+        ];
+
+        let mut rng = StdRng::seed_from_u64(42);
+        
+        // Request 3 hops. With diversity, it MUST pick from different subnets if possible.
+        // There are 3 distinct /24 subnets: 1.1.1.x, 2.2.2.x, 3.3.3.x.
+        let selected = weighted_random_choice(&pool, &mut rng, 3, 1.0);
+        
+        let mut subnets = std::collections::HashSet::new();
+        for idx in selected {
+            let subnet = get_subnet(&pool[idx].ip);
+            assert!(subnets.insert(subnet), "Should have picked distinct subnets");
+        }
+        assert_eq!(subnets.len(), 3);
     }
 }

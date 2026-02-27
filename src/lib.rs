@@ -239,7 +239,7 @@ where
 }
 
 #[no_mangle]
-pub extern "C" fn run_polish_c(raw_json: *const c_char) -> *mut c_char {
+pub extern "C" fn run_polish_c(raw_json: *const c_char, weights_json: *const c_char) -> *mut c_char {
     // Initialize logger (safe to call multiple times due to try_init)
     init_logger();
 
@@ -320,18 +320,22 @@ pub extern "C" fn run_polish_c(raw_json: *const c_char) -> *mut c_char {
                 }
             }
 
+            let weights: types::ScoringWeights = if !weights_json.is_null() {
+                let w_c_str = unsafe { CStr::from_ptr(weights_json) };
+                if let Ok(w_str) = w_c_str.to_str() {
+                    serde_json::from_str(w_str).unwrap_or_default()
+                } else {
+                    types::ScoringWeights::default()
+                }
+            } else {
+                types::ScoringWeights::default()
+            };
+
             let unique = polish::deduplicate_proxies(proxies);
-            let scored = polish::calculate_scores(unique);
+            let scored = polish::calculate_scores(unique, &weights);
             let (dns, non_dns) = polish::split_proxy_pools(scored.clone());
 
-            #[derive(serde::Serialize)]
-            struct PolishResult {
-                dns: Vec<types::Proxy>,
-                non_dns: Vec<types::Proxy>,
-                combined: Vec<types::Proxy>,
-            }
-
-            let result = PolishResult {
+            let result = types::PolishResult {
                 dns,
                 non_dns,
                 combined: scored,

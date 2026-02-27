@@ -77,6 +77,38 @@ impl ProxyTier {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScoringWeights {
+    #[serde(default = "default_weight_lat")]
+    pub latency: f64,
+    #[serde(default = "default_weight_anon")]
+    pub anonymity: f64,
+    #[serde(default = "default_weight_country")]
+    pub country: f64,
+    #[serde(default = "default_weight_proto")]
+    pub protocol: f64,
+    #[serde(default = "default_weight_premium")]
+    pub premium: f64,
+}
+
+fn default_weight_lat() -> f64 { 0.4 }
+fn default_weight_anon() -> f64 { 0.3 }
+fn default_weight_country() -> f64 { 0.2 }
+fn default_weight_proto() -> f64 { 0.1 }
+fn default_weight_premium() -> f64 { 0.5 }
+
+impl Default for ScoringWeights {
+    fn default() -> Self {
+        ScoringWeights {
+            latency: default_weight_lat(),
+            anonymity: default_weight_anon(),
+            country: default_weight_country(),
+            protocol: default_weight_proto(),
+            premium: default_weight_premium(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Proxy {
     #[serde(rename = "ip", alias = "IP")]
     pub ip: String,
@@ -121,6 +153,13 @@ impl Proxy {
     pub fn key(&self) -> String {
         format!("{}:{}", self.ip, self.port)
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PolishResult {
+    pub dns: Vec<Proxy>,
+    pub non_dns: Vec<Proxy>,
+    pub combined: Vec<Proxy>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

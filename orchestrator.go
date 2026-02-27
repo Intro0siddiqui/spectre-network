@@ -4,7 +4,7 @@ package main
 #cgo LDFLAGS: -L./target/release -lrotator_rs -ldl -lm -lpthread
 #include <stdlib.h>
 
-extern char* run_polish_c(const char* raw_json);
+extern char* run_polish_c(const char* raw_json, const char* weights_json);
 extern char* build_chain_decision_c(const char* mode, const char* dns_json, const char* non_dns_json, const char* combined_json);
 extern char* build_chain_topology_c(const char* mode, const char* dns_json, const char* non_dns_json, const char* combined_json);
 extern char* derive_keys_from_secret_c(const char* master_secret, const char* chain_id, int num_hops);
@@ -53,6 +53,24 @@ type Proxy struct {
 	LastVerified uint64  `json:"last_verified"`
 	Alive        bool    `json:"alive"`
 	SourceType   string  `json:"source_type"` // "standard" or "premium"
+}
+
+type ScoringWeights struct {
+	Latency   float64 `json:"latency"`
+	Anonymity float64 `json:"anonymity"`
+	Country   float64 `json:"country"`
+	Protocol  float64 `json:"protocol"`
+	Premium   float64 `json:"premium"`
+}
+
+func defaultWeights() ScoringWeights {
+	return ScoringWeights{
+		Latency:   0.4,
+		Anonymity: 0.3,
+		Country:   0.2,
+		Protocol:  0.1,
+		Premium:   0.5,
+	}
 }
 
 type PolishResult struct {
@@ -184,6 +202,7 @@ func main() {
 	switch cmd {
 	case "run":
 		mode, limit, protocol := parseRunArgs(args, "phantom", 500, "all")
+		weights := parseWeightArgs(args)
 		// Validate inputs before proceeding
 		if sanitizedMode, ok := sanitizeMode(mode); !ok {
 			fmt.Printf("%s Invalid mode: %s. Allowed: lite, stealth, high, phantom\n", col(red, "✗"), mode)
@@ -199,10 +218,11 @@ func main() {
 			fmt.Printf("%s Invalid protocol: %s. Allowed: all, socks5, https, http\n", col(red, "✗"), protocol)
 			os.Exit(1)
 		}
-		cmdRun(workspace, mode, limit, protocol)
+		cmdRun(workspace, mode, limit, protocol, weights)
 
 	case "refresh":
 		mode, limit, protocol := parseRunArgs(args, "phantom", 500, "all")
+		weights := parseWeightArgs(args)
 		// Validate inputs before proceeding
 		if sanitizedMode, ok := sanitizeMode(mode); !ok {
 			fmt.Printf("%s Invalid mode: %s. Allowed: lite, stealth, high, phantom\n", col(red, "✗"), mode)
@@ -218,7 +238,7 @@ func main() {
 			fmt.Printf("%s Invalid protocol: %s. Allowed: all, socks5, https, http\n", col(red, "✗"), protocol)
 			os.Exit(1)
 		}
-		cmdRefresh(workspace, mode, limit, protocol)
+		cmdRefresh(workspace, mode, limit, protocol, weights)
 
 	case "rotate":
 		mode := flagStr(args, "--mode", "phantom")
@@ -275,14 +295,14 @@ func main() {
 
 // spectre run [--mode phantom|high|stealth|lite] [--limit N] [--protocol all|socks5|https]
 // Full pipeline: scrape → polish → rotate → print chain
-func cmdRun(workspace, mode string, limit int, protocol string) {
+func cmdRun(workspace, mode string, limit int, protocol string, weights ScoringWeights) {
 	printBanner()
 	fmt.Printf("%s Scraping fresh proxies (limit=%d, protocol=%s)...\n", col(cyan, "◈"), limit, protocol)
 	raw, err := runScraper(workspace, limit, protocol)
 	if err != nil {
 		log.Fatalf("%s %v", col(red, "✗ Scraper:"), err)
 	}
-	dns, nonDNS, combined, err := runPolish(workspace, raw)
+	dns, nonDNS, combined, err := runPolish(workspace, raw, weights)
 	if err != nil {
 		log.Fatalf("%s %v", col(red, "✗ Polish:"), err)
 	}
@@ -301,19 +321,19 @@ func cmdRun(workspace, mode string, limit int, protocol string) {
 
 // spectre refresh [--mode ...] [--limit N] [--protocol ...]
 // Re-verify stored pool → fill delta if needed → rotate
-func cmdRefresh(workspace, mode string, limit int, protocol string) {
+func cmdRefresh(workspace, mode string, limit int, protocol string, weights ScoringWeights) {
 	printBanner()
 	combinedPath := filepath.Join(workspace, "proxies_combined.json")
 	if _, err := os.Stat(combinedPath); os.IsNotExist(err) {
 		fmt.Printf("%s No stored pool found — running full scrape instead.\n", col(yellow, "⚠"))
-		cmdRun(workspace, mode, limit, protocol)
+		cmdRun(workspace, mode, limit, protocol, weights)
 		return
 	}
 	fmt.Printf("%s Loading stored pool...\n", col(cyan, "◈"))
 	stored := loadProxies(combinedPath)
 	fmt.Printf("%s Loaded %d stored proxies. Verifying liveness (this takes a moment)...\n", col(cyan, "◈"), len(stored))
 
-	dns, nonDNS, combined, err := runVerify(workspace, stored)
+	dns, nonDNS, combined, err := runVerify(workspace, stored, weights)
 	if err != nil {
 		log.Fatalf("%s Verify failed: %v", col(red, "✗"), err)
 	}
@@ -331,11 +351,11 @@ func cmdRefresh(workspace, mode string, limit int, protocol string) {
 	printChain(decision)
 }
 
-func runVerify(workspace string, proxies []Proxy) (dns, nonDNS, combined []Proxy, err error) {
+func runVerify(workspace string, proxies []Proxy, weights ScoringWeights) (dns, nonDNS, combined []Proxy, err error) {
 	fmt.Printf("  %s Verifying pool of %d proxies...\n", col(dim, "→"), len(proxies))
 	verified := internalVerifyPool(proxies, MaxConcurrentVerifications)
 	// Re-run polish on verified proxies to update pools and scores
-	return runPolish(workspace, verified)
+	return runPolish(workspace, verified, weights)
 }
 
 // spectre rotate [--mode ...]
@@ -552,7 +572,7 @@ func runScraper(workspace string, limit int, protocol string) ([]Proxy, error) {
 	return proxies, nil
 }
 
-func runPolish(workspace string, proxies []Proxy) (dns, nonDNS, combined []Proxy, err error) {
+func runPolish(workspace string, proxies []Proxy, weights ScoringWeights) (dns, nonDNS, combined []Proxy, err error) {
 	// Load and merge premium proxies
 	premiumPath := filepath.Join(workspace, "premium_proxies.json")
 	if _, err := os.Stat(premiumPath); err == nil {
@@ -570,7 +590,11 @@ func runPolish(workspace string, proxies []Proxy) (dns, nonDNS, combined []Proxy
 	cRaw := C.CString(string(proxiesJSON))
 	defer C.free(unsafe.Pointer(cRaw))
 
-	cOut := C.run_polish_c(cRaw)
+	weightsJSON, _ := json.Marshal(weights)
+	cWeights := C.CString(string(weightsJSON))
+	defer C.free(unsafe.Pointer(cWeights))
+
+	cOut := C.run_polish_c(cRaw, cWeights)
 	if cOut == nil {
 		return nil, nil, nil, fmt.Errorf("rust polish returned null")
 	}
@@ -672,4 +696,24 @@ func parseRunArgs(args []string, defaultMode string, defaultLimit int, defaultPr
 	return flagStr(args, "--mode", defaultMode),
 		flagInt(args, "--limit", defaultLimit),
 		flagStr(args, "--protocol", defaultProto)
+}
+
+func flagFloat(args []string, name string, def float64) float64 {
+	v := flagStr(args, name, "")
+	if v == "" {
+		return def
+	}
+	var n float64
+	fmt.Sscanf(v, "%f", &n)
+	return n
+}
+
+func parseWeightArgs(args []string) ScoringWeights {
+	w := defaultWeights()
+	w.Latency = flagFloat(args, "--lat-weight", w.Latency)
+	w.Anonymity = flagFloat(args, "--anon-weight", w.Anonymity)
+	w.Country = flagFloat(args, "--country-weight", w.Country)
+	w.Protocol = flagFloat(args, "--proto-weight", w.Protocol)
+	w.Premium = flagFloat(args, "--premium-weight", w.Premium)
+	return w
 }

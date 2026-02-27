@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use log::{error, info};
-use rotator_rs::types::{Proxy, RotationDecision};
+use rotator_rs::types::{Proxy, RotationDecision, ScoringWeights};
 use rotator_rs::{polish, rotator};
 use std::fs;
 use std::path::PathBuf;
@@ -157,7 +157,8 @@ fn run_polish(
 ) -> Result<(Vec<Proxy>, Vec<Proxy>, Vec<Proxy>)> {
     info!("Polishing {} proxies...", proxies.len());
     let unique = polish::deduplicate_proxies(proxies);
-    let scored = polish::calculate_scores(unique);
+    let weights = ScoringWeights::default();
+    let scored = polish::calculate_scores(unique, &weights);
     let (dns, non_dns) = polish::split_proxy_pools(scored.clone());
 
     // Save pools
