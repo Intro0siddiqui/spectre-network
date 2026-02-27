@@ -40,6 +40,11 @@ Optimize proxy validation speed, implement infrastructure diversity, and refine 
   - [ ] Write a Go integration test that simulates a 3-hop chain and verifies payload integrity.
   - [ ] Ensure `tunnel.go` correctly applies the layered keys derived by Rust.
 
+- [ ] **Task: Experimental Garlic-Hybrid Mode**
+  - [ ] Add `garlic` mode to validation logic in `orchestrator.go`.
+  - [ ] Update `tunnel.go` to support dual-path (split outbound/inbound) routing for the garlic mode.
+  - [ ] Implement basic packet padding/chaffing in `encryptedPipe`.
+
 - [ ] **Task: Final Integration & Performance Audit**
   - [ ] Run `spectre audit` to confirm anonymity grades remain high.
   - [ ] Run `benchmark.sh` to ensure the worker pool improves scraping speed for large pools.
