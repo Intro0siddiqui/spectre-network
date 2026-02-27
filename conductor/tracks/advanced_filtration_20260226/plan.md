@@ -18,7 +18,7 @@ Optimize proxy validation speed, implement infrastructure diversity, and refine 
 
 - [x] **Task: Conductor - User Manual Verification 'Phase 1: Go-Layer Validation & Source Enhancements' (Protocol in workflow.md)**
 
-## Phase 2: Rust-Layer Diversity & Advanced Scoring
+## Phase 2: Rust-Layer Diversity & Advanced Scoring [checkpoint: 503284e]
 
 - [x] **Task: Implement CIDR Diversity** [e703840]
   - [x] Update `src/rotator.rs` to include a subnet check during chain assembly.
@@ -31,7 +31,7 @@ Optimize proxy validation speed, implement infrastructure diversity, and refine 
   - [x] Implement scoring penalty for known datacenter ASN ranges.
   - [x] Verify Rust tests pass for all new filtration logic.
 
-- [ ] **Task: Conductor - User Manual Verification 'Phase 2: Rust-Layer Diversity & Advanced Scoring' (Protocol in workflow.md)**
+- [x] **Task: Conductor - User Manual Verification 'Phase 2: Rust-Layer Diversity & Advanced Scoring' (Protocol in workflow.md)**
 
 ## Phase 3: Encryption Layering & Final Integration
 
