@@ -11,10 +11,10 @@ Optimize proxy validation speed, implement infrastructure diversity, and refine 
   - [x] Refactor `verifier.go` to use the worker pool instead of direct goroutine spawning.
   - [x] Verify coverage (>80%) for the new pool logic.
 
-- [ ] **Task: Support Hybrid Proxy Sources**
-  - [ ] Update `Proxy` struct in `orchestrator.go` to include a `SourceType` (Standard/Premium).
-  - [ ] Implement a command to manually add "Premium" proxy endpoints (e.g., from Nord free tiers).
-  - [ ] Write tests ensuring Premium proxies are prioritized during chain selection.
+- [x] **Task: Support Hybrid Proxy Sources** [f368e93]
+  - [x] Update `Proxy` struct in `orchestrator.go` to include a `SourceType` (Standard/Premium).
+  - [x] Implement a command to manually add "Premium" proxy endpoints (e.g., from Nord free tiers).
+  - [x] Write tests ensuring Premium proxies are prioritized during chain selection.
 
 - [ ] **Task: Conductor - User Manual Verification 'Phase 1: Go-Layer Validation & Source Enhancements' (Protocol in workflow.md)**
 
