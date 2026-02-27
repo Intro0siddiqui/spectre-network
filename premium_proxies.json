@@ -1,0 +1,14 @@
+[
+  {
+    "ip": "1.2.3.4",
+    "port": 8080,
+    "type": "socks5",
+    "country": "us",
+    "anonymity": "elite",
+    "tier": "",
+    "fail_count": 0,
+    "last_verified": 0,
+    "alive": true,
+    "source_type": "premium"
+  }
+]
