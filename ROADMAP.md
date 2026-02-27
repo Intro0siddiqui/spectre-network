@@ -40,3 +40,12 @@
 - [ ] **Browser Integration**
     - WebAssembly build to run directly inside a browser extension
     - One-click activation for non-technical users
+
+---
+
+## Phase 4: Nexus — Commercial & Native Integration
+**When you need it:** You want to combine the speed and reliability of commercial VPN providers with the anonymity of an adversarial multi-hop circuit.
+
+- [ ] **Direct VPN Protocol Support (WireGuard/OpenVPN)**
+    - Implement native client logic for WireGuard and OpenVPN to use existing commercial VPN accounts as internal mesh hops.
+    - *Why:* Allows the inclusion of high-performance, trusted commercial servers alongside ephemeral public proxies.
