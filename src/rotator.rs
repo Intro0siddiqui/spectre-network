@@ -461,6 +461,7 @@ mod tests {
             fail_count: 0,
             last_verified: 0,
             alive: true,
+            source_type: "standard".to_string(),
         }
     }
 

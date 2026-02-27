@@ -104,6 +104,13 @@ pub struct Proxy {
     /// Whether the last verification probe succeeded
     #[serde(default = "default_alive")]
     pub alive: bool,
+    /// Source of the proxy: "standard" or "premium"
+    #[serde(default = "default_source_type")]
+    pub source_type: String,
+}
+
+fn default_source_type() -> String {
+    "standard".to_string()
 }
 
 fn default_alive() -> bool {

@@ -43,16 +43,22 @@ lazy_static::lazy_static! {
 }
 
 pub fn deduplicate_proxies(proxies: Vec<Proxy>) -> Vec<Proxy> {
-    let mut seen = HashSet::new();
-    let mut unique = Vec::new();
+    let mut seen: HashMap<String, Proxy> = HashMap::new();
     for p in proxies {
         let key = p.key();
-        if !seen.contains(&key) {
-            seen.insert(key);
-            unique.push(p);
+        match seen.get(&key) {
+            Some(existing) => {
+                // If existing is standard and new is premium, replace it
+                if existing.source_type == "standard" && p.source_type == "premium" {
+                    seen.insert(key, p);
+                }
+            }
+            None => {
+                seen.insert(key, p);
+            }
         }
     }
-    unique
+    seen.into_values().collect()
 }
 
 pub fn calculate_scores(mut proxies: Vec<Proxy>) -> Vec<Proxy> {
@@ -95,7 +101,12 @@ pub fn calculate_scores(mut proxies: Vec<Proxy>) -> Vec<Proxy> {
         let type_score = TYPE_SCORES.get(proto.as_str()).unwrap_or(&0.3);
         score += type_score * TYPE_WEIGHT;
 
-        // Bonus
+        // Premium Bonus
+        if p.source_type == "premium" {
+            score += 0.5; // Significant boost for manually added proxies
+        }
+
+        // DNS Bonus
         if DNS_CAPABLE_TYPES.contains(proto.as_str()) {
             score *= 1.2;
         }
@@ -161,6 +172,7 @@ mod tests {
             fail_count: 0,
             last_verified: 0,
             alive: true,
+            source_type: "standard".to_string(),
         }
     }
 
@@ -559,6 +571,22 @@ mod tests {
         let scores: Vec<f64> = scored.iter().map(|p| p.score).collect();
         assert_eq!(scores[0], scores[1]);
         assert_eq!(scores[1], scores[2]);
+    }
+
+    #[test]
+    fn test_premium_bonus() {
+        let mut p1 = make_proxy("1.1.1.1", 80, "http", 100.0, "us", "elite");
+        p1.source_type = "standard".to_string();
+        
+        let mut p2 = make_proxy("2.2.2.2", 80, "http", 100.0, "us", "elite");
+        p2.source_type = "premium".to_string();
+        
+        let scored = calculate_scores(vec![p1, p2]);
+        
+        let standard = scored.iter().find(|p| p.ip == "1.1.1.1").unwrap();
+        let premium = scored.iter().find(|p| p.ip == "2.2.2.2").unwrap();
+        
+        assert!(premium.score > standard.score, "Premium should score higher than standard with same metrics");
     }
 
     #[test]

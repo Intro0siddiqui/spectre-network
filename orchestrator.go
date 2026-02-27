@@ -52,6 +52,7 @@ type Proxy struct {
 	FailCount    uint32  `json:"fail_count"`
 	LastVerified uint64  `json:"last_verified"`
 	Alive        bool    `json:"alive"`
+	SourceType   string  `json:"source_type"` // "standard" or "premium"
 }
 
 type PolishResult struct {
@@ -233,6 +234,19 @@ func main() {
 	case "stats":
 		cmdStats(workspace)
 
+	case "add":
+		ip := flagStr(args, "--ip", "")
+		port := flagInt(args, "--port", 0)
+		proto := flagStr(args, "--proto", "socks5")
+		country := flagStr(args, "--country", "xx")
+		anonymity := flagStr(args, "--anonymity", "elite")
+		
+		if ip == "" || port == 0 {
+			fmt.Printf("%s IP and Port are required. Usage: spectre add --ip IP --port PORT [--proto PROTO] [--country CC] [--anonymity ANON]\n", col(red, "✗"))
+			os.Exit(1)
+		}
+		cmdAdd(workspace, ip, uint16(port), proto, country, anonymity)
+
 	case "audit":
 		cmdAudit()
 
@@ -359,6 +373,38 @@ func cmdServe(workspace, mode string, port int) {
 	}
 }
 
+// spectre add --ip ... --port ... --proto ...
+func cmdAdd(workspace, ip string, port uint16, proto, country, anonymity string) {
+	premiumPath := filepath.Join(workspace, "premium_proxies.json")
+	premium := loadProxies(premiumPath)
+	
+	newProxy := Proxy{
+		IP:         ip,
+		Port:       port,
+		Proto:      proto,
+		Country:    country,
+		Anonymity:  anonymity,
+		SourceType: "premium",
+		Alive:      true,
+	}
+	
+	// Avoid duplicates in premium_proxies.json
+	exists := false
+	for i, p := range premium {
+		if p.IP == ip && p.Port == port {
+			premium[i] = newProxy
+			exists = true
+			break
+		}
+	}
+	if !exists {
+		premium = append(premium, newProxy)
+	}
+	
+	saveJSON(premiumPath, premium)
+	fmt.Printf("%s Added premium proxy: %s:%d [%s] (%s)\n", col(green, "✓"), ip, port, proto, country)
+}
+
 // spectre stats
 // Show pool health without building a chain
 func cmdStats(workspace string) {
@@ -434,6 +480,7 @@ func printHelp() {
   %s            Re-verify stored pool, fill gaps, build chain
   %s  [--mode M]            Build chain from stored pool (no scrape)
   spectre serve   [--mode M] [--port P]  Start SOCKS5 proxy server (default port: 1080)
+  spectre add     --ip IP --port PORT    Add a premium manual proxy
   %s                          Show pool health stats
   %s                          Run containerised security audit (needs Podman)
 
@@ -506,6 +553,16 @@ func runScraper(workspace string, limit int, protocol string) ([]Proxy, error) {
 }
 
 func runPolish(workspace string, proxies []Proxy) (dns, nonDNS, combined []Proxy, err error) {
+	// Load and merge premium proxies
+	premiumPath := filepath.Join(workspace, "premium_proxies.json")
+	if _, err := os.Stat(premiumPath); err == nil {
+		premium := loadProxies(premiumPath)
+		if len(premium) > 0 {
+			fmt.Printf("  %s Merging %d premium proxies...\n", col(dim, "→"), len(premium))
+			proxies = append(proxies, premium...)
+		}
+	}
+
 	proxiesJSON, err := json.Marshal(proxies)
 	if err != nil {
 		return nil, nil, nil, err
