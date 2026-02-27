@@ -4,5 +4,3 @@ This file tracks all major tracks for the project. Each track has its own detail
 
 ---
 
-- [x] **Track: Optimize Proxy Filtration & Layered Anonymity**
-  *Link: [./tracks/advanced_filtration_20260226/](./tracks/advanced_filtration_20260226/)*
