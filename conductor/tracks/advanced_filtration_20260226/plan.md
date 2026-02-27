@@ -20,16 +20,16 @@ Optimize proxy validation speed, implement infrastructure diversity, and refine 
 
 ## Phase 2: Rust-Layer Diversity & Advanced Scoring
 
-- [ ] **Task: Implement CIDR Diversity**
-  - [ ] Update `src/rotator.rs` to include a subnet check during chain assembly.
-  - [ ] Write failing tests in Rust ensuring proxies in the same `/24` are rejected for the same chain.
-  - [ ] Implement `is_same_subnet` helper logic in Rust.
+- [x] **Task: Implement CIDR Diversity** [e703840]
+  - [x] Update `src/rotator.rs` to include a subnet check during chain assembly.
+  - [x] Write failing tests in Rust ensuring proxies in the same `/24` are rejected for the same chain.
+  - [x] Implement `is_same_subnet` helper logic in Rust.
 
-- [ ] **Task: ASN Blacklisting & Dynamic Weights**
-  - [ ] Add `asn_filter` module to `src/polish.rs`.
-  - [ ] Update FFI boundary in `src/lib.rs` to accept custom weight overrides from Go.
-  - [ ] Implement scoring penalty for known datacenter ASN ranges.
-  - [ ] Verify Rust tests pass for all new filtration logic.
+- [x] **Task: ASN Blacklisting & Dynamic Weights** [e703840]
+  - [x] Add `asn_filter` module to `src/polish.rs`.
+  - [x] Update FFI boundary in `src/lib.rs` to accept custom weight overrides from Go.
+  - [x] Implement scoring penalty for known datacenter ASN ranges.
+  - [x] Verify Rust tests pass for all new filtration logic.
 
 - [ ] **Task: Conductor - User Manual Verification 'Phase 2: Rust-Layer Diversity & Advanced Scoring' (Protocol in workflow.md)**
 
