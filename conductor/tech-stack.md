@@ -1,7 +1,7 @@
 # Spectre Network: Technology Stack
 
 ## Core Development
-- **Networking & Orchestration**: **Go** (Standard Library, `colly` for scraping). Responsible for 100% of network I/O, concurrent scraping, and the SOCKS5 server/tunneling layer.
+- **Networking & Orchestration**: **Go** (Standard Library, `colly` for scraping, `obfs4` for obfuscation, `yaml.v3` for config). Responsible for 100% of network I/O, concurrent scraping, and the SOCKS5 server/tunneling layer.
 - **System Processing & Cryptography**: **Rust** (Standard Library, `aes-gcm` for encryption, `serde` for JSON data exchange). Responsible for high-performance scoring, tiering, and topology calculations.
 - **Bridge Logic**: **CGO (Foreign Function Interface)**. Rust is compiled as a static library (`librotator_rs.a`) and linked into the Go binary (`spectre`) via C pointers.
 
