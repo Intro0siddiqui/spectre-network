@@ -11,7 +11,7 @@
     - [x] **Refactor:** Improve performance and clarity of the padding/chaffing loops (Go) 1c3b0aa
 - [x] **Task: Conductor - User Manual Verification 'Phase 1: Foundation & Refinement' (Protocol in workflow.md)** b1a94e2
 
-**Phase 2: Protocol Morphing (obfs4)**
+**Phase 2: Protocol Morphing (obfs4) [checkpoint: 021dd49]**
 - [x] **Task: Integrate obfs4 Library** 1c3b0aa
     - [x] **Write Tests (Red Phase):** Create tests for `obfs4` handshake wrapper (Go) 1c3b0aa
     - [x] **Implement (Green Phase):** Integrate `obfs4proxy` or compatible library into the Go orchestrator (Go) 1c3b0aa
@@ -20,7 +20,7 @@
     - [x] **Write Tests (Red Phase):** Verify `handshakeProxy` correctly wraps connections in `obfs4` (Go) 1c3b0aa
     - [x] **Implement (Green Phase):** Update `handshakeProxy` in `tunnel.go` to support `obfs4` protocol morphing (Go) 1c3b0aa
     - [x] **Refactor:** Ensure `obfs4` handshake integrates smoothly with multi-hop circuits (Go) 1c3b0aa
-- [ ] **Task: Conductor - User Manual Verification 'Phase 2: Protocol Morphing (obfs4)' (Protocol in workflow.md)**
+- [x] **Task: Conductor - User Manual Verification 'Phase 2: Protocol Morphing (obfs4)' (Protocol in workflow.md)** 021dd49
 
 **Phase 3: Integration & Final Polish**
 - [ ] **Task: Full Circuit Validation**
