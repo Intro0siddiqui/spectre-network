@@ -23,11 +23,11 @@
 - [x] **Task: Conductor - User Manual Verification 'Phase 2: Protocol Morphing (obfs4)' (Protocol in workflow.md)** 021dd49
 
 **Phase 3: Integration & Final Polish**
-- [ ] **Task: Full Circuit Validation**
-    - [ ] **Write Tests (Red Phase):** Add integration tests for a multi-hop circuit using both obfuscation and obfs4 (Go/Rust)
-    - [ ] **Implement (Green Phase):** Ensure `buildCircuitInternal` correctly coordinates obfuscation across hops (Go)
-    - [ ] **Refactor:** Optimize memory usage for long-running obfuscated sessions (Go)
-- [ ] **Task: Documentation & Final Cleanup**
-    - [ ] Update `README.md` and `ROADMAP.md` with the new obfuscation features (Docs)
-    - [ ] Perform a final security audit of the obfuscation logic (Audit)
+- [x] **Task: Full Circuit Validation** 1c3b0aa
+    - [x] **Write Tests (Red Phase):** Add integration tests for a multi-hop circuit using both obfuscation and obfs4 (Go/Rust) 1c3b0aa
+    - [x] **Implement (Green Phase):** Ensure `buildCircuitInternal` correctly coordinates obfuscation across hops (Go) 1c3b0aa
+    - [x] **Refactor:** Optimize memory usage for long-running obfuscated sessions (Go) 1c3b0aa
+- [x] **Task: Documentation & Final Cleanup** 1c3b0aa
+    - [x] Update `README.md` and `ROADMAP.md` with the new obfuscation features (Docs) 1c3b0aa
+    - [x] Perform a final security audit of the obfuscation logic (Audit) 1c3b0aa
 - [ ] **Task: Conductor - User Manual Verification 'Phase 3: Integration & Final Polish' (Protocol in workflow.md)**

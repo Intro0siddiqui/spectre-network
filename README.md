@@ -68,6 +68,10 @@ spectre <command> [flags]
 | `--limit` | integer (1–10 000) | `500` |
 | `--protocol` | `all` \| `socks5` \| `https` \| `http` | `all` |
 | `--port` | integer | `1080` |
+| `--garlic` | boolean | `false` |
+| `--obfuscation-mode` | `off` \| `simple` \| `advanced` \| `obfs4` | `off` |
+| `--jitter-range` | integer (ms) | `3000` |
+| `--padding-range` | `MIN-MAX` (bytes) | `512-1024` |
 
 ### Examples
 
@@ -75,20 +79,11 @@ spectre <command> [flags]
 # First run — scrape fresh and build a phantom chain
 spectre run --mode phantom --limit 1000
 
-# Fast second run — re-verify pool, skip scraping if healthy
-spectre refresh --mode phantom
+# Advanced obfuscation — randomized padding and jittered chaffing
+spectre run --mode high --garlic --obfuscation-mode advanced --padding-range 256-512
 
-# Instant rotation using whatever pool is on disk
-spectre rotate --mode high
-
-# Start a persistent SOCKS5 server on port 1080
-spectre serve --mode phantom --port 1080
-
-# Check pool stats
-spectre stats
-
-# Run the full security audit inside Podman
-spectre audit
+# obfs4 Pluggable Transport (Protocol Morphing)
+spectre run --mode lite --obfuscation-mode obfs4 --node-id <ID> --public-key <KEY>
 ```
 
 ---
@@ -121,6 +116,8 @@ Tier assignment is automatic based on weighted scoring (latency, anonymity, coun
 ## What It Does
 
 - ✅ Multi-hop SOCKS5 tunnel with AES-256-GCM encryption on every connection
+- ✅ **Traffic shaping (Garlic Mode)** — randomized packet padding and jitter injection to defeat timing correlation.
+- ✅ **Protocol morphing (obfs4)** — supports pluggable transports to bypass Deep Packet Inspection.
 - ✅ DNS routed through chain in `high`/`phantom` modes (no local DNS leaks)
 - ✅ Proxy pool persistence with live health re-verification
 - ✅ Randomised chain assembly on every rotation — no fixed exit IP
@@ -130,9 +127,8 @@ Tier assignment is automatic based on weighted scoring (latency, anonymity, coun
 
 ## What It Doesn't Do Yet
 
-- ❌ **Traffic shaping** — no packet padding or jitter injection. A global passive adversary can correlate traffic by timing. *(Phase 1 roadmap)*
-- ❌ **Protocol morphing** — traffic looks like SOCKS5, not HTTPS/QUIC. Deep Packet Inspection can detect it. *(Phase 1 roadmap)*
 - ❌ **P2P proxy discovery** — still uses a centralised scraper. *(Phase 2 roadmap)*
+- ❌ **Browser Integration** — WebAssembly build for browser extensions. *(Phase 3 roadmap)*
 
 ### Is the missing traffic shaping a problem?
 

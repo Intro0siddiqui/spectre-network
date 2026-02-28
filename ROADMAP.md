@@ -7,13 +7,13 @@
 ## Phase 1: Ghost — Traffic Obfuscation
 **When you need it:** You are in a country with Deep Packet Inspection (China, Iran, Russia) that blocks non-HTTPS traffic, OR you believe a targeted surveillance operation is timing your connections.
 
-- [ ] **Traffic Shaping (Chaffing)**
+- [x] **Traffic Shaping (Chaffing)**
     - Inject dummy packets to normalise traffic rates and volume
     - *Why:* Defeats timing correlation where an adversary matches your outbound bursts with the exit proxy's bursts
-- [ ] **Packet Padding**
+- [x] **Packet Padding**
     - Pad all frames to fixed sizes (e.g. 512 bytes)
     - Randomised micro-delays (jitter) to break temporal fingerprinting
-- [ ] **Protocol Morphing (Pluggable Transports)**
+- [x] **Protocol Morphing (Pluggable Transports)**
     - Wrap SOCKS5 traffic in HTTPS or QUIC so it looks like a YouTube stream
     - Support `obfs4` or `meek` (domain fronting) to bypass DPI blocklists
 
