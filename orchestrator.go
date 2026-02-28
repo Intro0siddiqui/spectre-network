@@ -93,9 +93,13 @@ type ChainHop struct {
 }
 
 type ObfuscationConfig struct {
-	Mode         string `json:"mode" yaml:"mode"`                   // "off", "simple", "advanced"
+	Mode         string `json:"mode" yaml:"mode"`                   // "off", "simple", "advanced", "obfs4"
 	JitterRange  int    `json:"jitter_range" yaml:"jitter_range"`   // ms
 	PaddingRange [2]int `json:"padding_range" yaml:"padding_range"` // [min, max] bytes
+	NodeID       string `json:"node_id,omitempty" yaml:"node_id,omitempty"`
+	PublicKey    string `json:"public_key,omitempty" yaml:"public_key,omitempty"`
+	Cert         string `json:"cert,omitempty" yaml:"cert,omitempty"`
+	IATMode      int    `json:"iat_mode,omitempty" yaml:"iat_mode,omitempty"`
 }
 
 type CryptoHop struct {
@@ -762,6 +766,18 @@ func parseRunArgs(args []string, defaultMode string, defaultLimit int, defaultPr
 		if max > 0 {
 			obfuscation.PaddingRange = [2]int{min, max}
 		}
+	}
+	if nodeID := flagStr(args, "--node-id", ""); nodeID != "" {
+		obfuscation.NodeID = nodeID
+	}
+	if pubKey := flagStr(args, "--public-key", ""); pubKey != "" {
+		obfuscation.PublicKey = pubKey
+	}
+	if cert := flagStr(args, "--cert", ""); cert != "" {
+		obfuscation.Cert = cert
+	}
+	if iat := flagInt(args, "--iat-mode", -1); iat != -1 {
+		obfuscation.IATMode = iat
 	}
 	return
 }

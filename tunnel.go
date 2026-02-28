@@ -22,6 +22,8 @@ import (
 	"sync"
 	"time"
 	"unsafe"
+
+	"gitlab.com/yawning/obfs4.git/transports/obfs4"
 )
 
 const (
@@ -633,16 +635,26 @@ func handshakeProxy(conn net.Conn, hop ChainHop, target string) error {
 	conn.SetDeadline(time.Now().Add(10 * time.Second))
 	defer conn.SetDeadline(time.Time{})
 
+	// Apply obfs4 wrapper if configured
+	var currentConn net.Conn = conn
+	if hop.Obfuscation != nil && hop.Obfuscation.Mode == "obfs4" {
+		var err error
+		currentConn, err = wrapObfs4Client(conn, fmt.Sprintf("%s:%d", hop.IP, hop.Port), hop.Obfuscation)
+		if err != nil {
+			return fmt.Errorf("obfs4 wrap failed: %v", err)
+		}
+	}
+
 	proto := strings.ToLower(hop.Proto)
 	switch proto {
 	case "socks5":
 		// 1. Send version and methods (NO AUTH)
-		if _, err := conn.Write([]byte{0x05, 0x01, 0x00}); err != nil {
+		if _, err := currentConn.Write([]byte{0x05, 0x01, 0x00}); err != nil {
 			return err
 		}
 		// 2. Read selected method
 		buf := make([]byte, 2)
-		if _, err := io.ReadFull(conn, buf); err != nil {
+		if _, err := io.ReadFull(currentConn, buf); err != nil {
 			return fmt.Errorf("socks5 read method: %v", err)
 		}
 		if buf[0] != 0x05 || buf[1] != 0x00 {
@@ -670,13 +682,13 @@ func handshakeProxy(conn net.Conn, hop ChainHop, target string) error {
 		}
 		req = append(req, byte(port>>8), byte(port&0xFF))
 		
-		if _, err := conn.Write(req); err != nil {
+		if _, err := currentConn.Write(req); err != nil {
 			return fmt.Errorf("socks5 write connect: %v", err)
 		}
 
 		// 4. Read response
 		head := make([]byte, 4)
-		if _, err := io.ReadFull(conn, head); err != nil {
+		if _, err := io.ReadFull(currentConn, head); err != nil {
 			return fmt.Errorf("socks5 read connect response head: %v", err)
 		}
 		if head[1] != 0x00 {
@@ -687,19 +699,19 @@ func handshakeProxy(conn net.Conn, hop ChainHop, target string) error {
 		atyp := head[3]
 		switch atyp {
 		case 0x01: // IPv4
-			io.ReadFull(conn, make([]byte, 6))
+			io.ReadFull(currentConn, make([]byte, 6))
 		case 0x03: // Domain
 			lenBuf := make([]byte, 1)
-			io.ReadFull(conn, lenBuf)
-			io.ReadFull(conn, make([]byte, int(lenBuf[0])+2))
+			io.ReadFull(currentConn, lenBuf)
+			io.ReadFull(currentConn, make([]byte, int(lenBuf[0])+2))
 		case 0x04: // IPv6
-			io.ReadFull(conn, make([]byte, 18))
+			io.ReadFull(currentConn, make([]byte, 18))
 		}
 		return nil
 
 	case "http", "https":
 		req := fmt.Sprintf("CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", target, target)
-		if _, err := conn.Write([]byte(req)); err != nil {
+		if _, err := currentConn.Write([]byte(req)); err != nil {
 			return err
 		}
 
@@ -707,7 +719,7 @@ func handshakeProxy(conn net.Conn, hop ChainHop, target string) error {
 		headerBuf := make([]byte, 0, 4096)
 		oneByte := make([]byte, 1)
 		for {
-			if _, err := io.ReadFull(conn, oneByte); err != nil {
+			if _, err := io.ReadFull(currentConn, oneByte); err != nil {
 				return err
 			}
 			headerBuf = append(headerBuf, oneByte[0])
@@ -728,4 +740,28 @@ func handshakeProxy(conn net.Conn, hop ChainHop, target string) error {
 	default:
 		return fmt.Errorf("unknown protocol: %s", hop.Proto)
 	}
+}
+
+func wrapObfs4Client(conn net.Conn, addr string, config *ObfuscationConfig) (net.Conn, error) {
+	t := &obfs4.Transport{}
+	args := make(map[string][]string)
+	if config.NodeID != "" {
+		args["node-id"] = []string{config.NodeID}
+	}
+	if config.PublicKey != "" {
+		args["public-key"] = []string{config.PublicKey}
+	}
+	if config.Cert != "" {
+		args["cert"] = []string{config.Cert}
+	}
+	args["iat-mode"] = []string{strconv.Itoa(config.IATMode)}
+
+	cf, err := t.ClientFactory("")
+	if err != nil {
+		return nil, err
+	}
+
+	return cf.Dial("tcp", addr, func(network, address string) (net.Conn, error) {
+		return conn, nil
+	}, args)
 }

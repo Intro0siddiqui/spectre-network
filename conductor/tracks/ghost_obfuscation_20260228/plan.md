@@ -12,14 +12,14 @@
 - [x] **Task: Conductor - User Manual Verification 'Phase 1: Foundation & Refinement' (Protocol in workflow.md)** b1a94e2
 
 **Phase 2: Protocol Morphing (obfs4)**
-- [ ] **Task: Integrate obfs4 Library**
-    - [ ] **Write Tests (Red Phase):** Create tests for `obfs4` handshake wrapper (Go)
-    - [ ] **Implement (Green Phase):** Integrate `obfs4proxy` or compatible library into the Go orchestrator (Go)
-    - [ ] **Refactor:** Clean up library integration and ensure non-blocking operation (Go)
-- [ ] **Task: Implement obfs4 Handshake**
-    - [ ] **Write Tests (Red Phase):** Verify `handshakeProxy` correctly wraps connections in `obfs4` (Go)
-    - [ ] **Implement (Green Phase):** Update `handshakeProxy` in `tunnel.go` to support `obfs4` protocol morphing (Go)
-    - [ ] **Refactor:** Ensure `obfs4` handshake integrates smoothly with multi-hop circuits (Go)
+- [x] **Task: Integrate obfs4 Library** 1c3b0aa
+    - [x] **Write Tests (Red Phase):** Create tests for `obfs4` handshake wrapper (Go) 1c3b0aa
+    - [x] **Implement (Green Phase):** Integrate `obfs4proxy` or compatible library into the Go orchestrator (Go) 1c3b0aa
+    - [x] **Refactor:** Clean up library integration and ensure non-blocking operation (Go) 1c3b0aa
+- [x] **Task: Implement obfs4 Handshake** 1c3b0aa
+    - [x] **Write Tests (Red Phase):** Verify `handshakeProxy` correctly wraps connections in `obfs4` (Go) 1c3b0aa
+    - [x] **Implement (Green Phase):** Update `handshakeProxy` in `tunnel.go` to support `obfs4` protocol morphing (Go) 1c3b0aa
+    - [x] **Refactor:** Ensure `obfs4` handshake integrates smoothly with multi-hop circuits (Go) 1c3b0aa
 - [ ] **Task: Conductor - User Manual Verification 'Phase 2: Protocol Morphing (obfs4)' (Protocol in workflow.md)**
 
 **Phase 3: Integration & Final Polish**

@@ -182,6 +182,14 @@ pub struct ObfuscationConfig {
     pub jitter_range: u32,
     #[serde(default = "default_padding_range")]
     pub padding_range: (u32, u32),
+    #[serde(default)]
+    pub node_id: Option<String>,
+    #[serde(default)]
+    pub public_key: Option<String>,
+    #[serde(default)]
+    pub cert: Option<String>,
+    #[serde(default)]
+    pub iat_mode: Option<u32>,
 }
 
 fn default_obfuscation_mode() -> String {
