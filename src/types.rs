@@ -170,6 +170,28 @@ pub struct ChainHop {
     pub country: String,
     pub latency: f64,
     pub score: f64,
+    #[serde(default)]
+    pub obfuscation: Option<ObfuscationConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ObfuscationConfig {
+    #[serde(default = "default_obfuscation_mode")]
+    pub mode: String,
+    #[serde(default = "default_jitter_range")]
+    pub jitter_range: u32,
+    #[serde(default = "default_padding_range")]
+    pub padding_range: (u32, u32),
+}
+
+fn default_obfuscation_mode() -> String {
+    "off".to_string()
+}
+fn default_jitter_range() -> u32 {
+    0
+}
+fn default_padding_range() -> (u32, u32) {
+    (0, 0)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -188,6 +210,8 @@ pub struct RotationDecision {
     pub min_score: f64,
     pub max_score: f64,
     pub encryption: Vec<CryptoHop>,
+    #[serde(default)]
+    pub garlic: bool,
 }
 
 /// ChainTopology contains only the chain structure without cryptographic material.

@@ -124,6 +124,7 @@ pub fn reconstruct_decision_from_topology(
             country: String::new(), // Not stored in topology
             latency: 0.0,           // Not stored in topology
             score: 0.0,             // Not stored in topology
+            obfuscation: None,
         })
         .collect();
 
@@ -136,6 +137,7 @@ pub fn reconstruct_decision_from_topology(
         min_score: topology.min_score,
         max_score: topology.max_score,
         encryption,
+        garlic: false,
     }
 }
 
@@ -400,6 +402,7 @@ fn choose_chain_internal<R: Rng>(
             country: p.country.clone(),
             latency: if p.latency > 0.0 { p.latency } else { 1.0 },
             score: if p.score > 0.0 { p.score } else { 0.5 },
+            obfuscation: None,
         };
         sum_latency += hop.latency;
         if hop.score < min_score {
@@ -437,6 +440,7 @@ fn choose_chain_internal<R: Rng>(
             0.0
         },
         encryption: crypto,
+        garlic: false,
     })
 }
 

@@ -15,6 +15,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"math/rand"
 	"net"
 	"strconv"
 	"strings"
@@ -54,10 +55,26 @@ func NewCryptoSession(hops []CryptoHop) (*CryptoSession, error) {
 }
 
 // encryptedPipe pumps data between client and server with multi-layered AES-GCM encryption.
-func encryptedPipeGarlic(client, serverOut, serverIn net.Conn, cryptoHops []CryptoHop, garlic bool) error {
+func encryptedPipeGarlic(client, serverOut, serverIn net.Conn, cryptoHops []CryptoHop, garlic bool, obfuscation *ObfuscationConfig) error {
 	session, err := NewCryptoSession(cryptoHops)
 	if err != nil {
 		return err
+	}
+
+	// Determine obfuscation parameters
+	paddingMin := 512
+	paddingMax := 1024
+	if obfuscation != nil && obfuscation.PaddingRange[1] > 0 {
+		paddingMin = obfuscation.PaddingRange[0]
+		paddingMax = obfuscation.PaddingRange[1]
+		if paddingMax < paddingMin {
+			paddingMax = paddingMin
+		}
+	}
+
+	jitterMs := 3000
+	if obfuscation != nil && obfuscation.JitterRange > 0 {
+		jitterMs = obfuscation.JitterRange
 	}
 
 	errCh := make(chan error, 2)
@@ -67,8 +84,9 @@ func encryptedPipeGarlic(client, serverOut, serverIn net.Conn, cryptoHops []Cryp
 		buf := make([]byte, ChunkSize)
 		var counter uint64 = 0
 		
-		// Chaffing ticker: send a dummy packet every 2-5 seconds if idle
-		chaffTicker := time.NewTicker(3 * time.Second)
+		// Chaffing ticker: send a dummy packet at randomized intervals if idle
+		nextChaff := time.Duration(jitterMs/2 + rand.Intn(jitterMs)) * time.Millisecond
+		chaffTicker := time.NewTicker(nextChaff)
 		defer chaffTicker.Stop()
 		
 		for {
@@ -77,12 +95,22 @@ func encryptedPipeGarlic(client, serverOut, serverIn net.Conn, cryptoHops []Cryp
 				if !garlic {
 					continue
 				}
+				
+				// Randomized chaff size
+				chaffSize := paddingMin
+				if paddingMax > paddingMin {
+					chaffSize = paddingMin + rand.Intn(paddingMax-paddingMin+1)
+				}
+				if chaffSize < 2 {
+					chaffSize = 2
+				}
+				
 				// Send a dummy packet (chaff)
-				dummy := make([]byte, 510) // 512 total with header
+				payload := make([]byte, chaffSize)
 				// length = 0 means dummy
-				payload := make([]byte, 512)
 				binary.LittleEndian.PutUint16(payload[0:2], 0)
-				copy(payload[2:], dummy)
+				// random data in chaff
+				rand.Read(payload[2:])
 				
 				encrypted, err := encryptLayered(session, counter, payload)
 				if err == nil {
@@ -94,24 +122,44 @@ func encryptedPipeGarlic(client, serverOut, serverIn net.Conn, cryptoHops []Cryp
 					counter++
 				}
 				
+				// Reset with new jitter
+				nextChaff = time.Duration(jitterMs/2 + rand.Intn(jitterMs)) * time.Millisecond
+				chaffTicker.Reset(nextChaff)
+				
 			default:
-				client.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+				client.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
 				n, err := client.Read(buf)
 				client.SetReadDeadline(time.Time{})
 				
 				if n > 0 {
 					payload := buf[:n]
 
-					// Garlic padding: Pad payload to a multiple of 512 bytes to obscure traffic shape
+					// Garlic padding: Pad payload to a randomized size to obscure traffic shape
 					if garlic {
-						padLen := 512 - (len(payload) % 512)
-						if padLen == 512 {
+						// Calculate target size (multiple of some block or within range)
+						// For advanced obfuscation, we pad to a random size in range
+						targetSize := paddingMin
+						if paddingMax > paddingMin {
+							targetSize = paddingMin + rand.Intn(paddingMax-paddingMin+1)
+						}
+						
+						// If original payload is already larger than target, pad to next target increment
+						if len(payload) + 2 > targetSize {
+							increment := 512
+							targetSize = ((len(payload) + 2 + increment - 1) / increment) * increment
+						}
+						
+						padLen := targetSize - (len(payload) + 2)
+						if padLen < 0 {
 							padLen = 0
 						}
+						
 						// 2 bytes for original length, then payload, then padding
 						padded := make([]byte, 2+len(payload)+padLen)
 						binary.LittleEndian.PutUint16(padded[0:2], uint16(len(payload)))
 						copy(padded[2:], payload)
+						// randomize padding data
+						rand.Read(padded[2+len(payload):])
 						payload = padded
 					}
 
@@ -136,7 +184,10 @@ func encryptedPipeGarlic(client, serverOut, serverIn net.Conn, cryptoHops []Cryp
 						return
 					}
 					counter++
-					chaffTicker.Reset(3 * time.Second) // Reset idle timer
+					
+					// Reset idle timer with jitter
+					nextChaff = time.Duration(jitterMs/2 + rand.Intn(jitterMs)) * time.Millisecond
+					chaffTicker.Reset(nextChaff)
 				}
 				
 				if err != nil {
@@ -310,7 +361,7 @@ func decryptWithCounter(keyHex, nonceHex string, counter uint64, ciphertext []by
 }
 
 // startSOCKS5Server starts the SOCKS5 server with live rotation.
-func startSOCKS5Server(port int, initialDecision RotationDecision, dnsPool, nonDNSPool, combinedPool []Proxy) error {
+func startSOCKS5Server(port int, initialDecision RotationDecision, dnsPool, nonDNSPool, combinedPool []Proxy, obfuscation *ObfuscationConfig) error {
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -333,7 +384,7 @@ func startSOCKS5Server(port int, initialDecision RotationDecision, dnsPool, nonD
 			mu.RUnlock()
 
 			fmt.Printf("%s Health check: rotating chain for mode %s\n", col(cyan, "◈"), mode)
-			newDecision, err := buildChainDecision(mode, dnsPool, nonDNSPool, combinedPool, currentDecision.Garlic)
+			newDecision, err := buildChainDecision(mode, dnsPool, nonDNSPool, combinedPool, currentDecision.Garlic, obfuscation)
 			if err == nil && newDecision != nil {
 				mu.Lock()
 				currentDecision = *newDecision
@@ -354,16 +405,16 @@ func startSOCKS5Server(port int, initialDecision RotationDecision, dnsPool, nonD
 		d := currentDecision
 		mu.RUnlock()
 
-		go func(c net.Conn, d RotationDecision) {
-			if err := handleSOCKS5Client(c, d, dnsPool, nonDNSPool, combinedPool); err != nil {
+		go func(c net.Conn, d RotationDecision, obf *ObfuscationConfig) {
+			if err := handleSOCKS5Client(c, d, dnsPool, nonDNSPool, combinedPool, obf); err != nil {
 				// Silently log or handle connection errors
 			}
-		}(client, d)
+		}(client, d, obfuscation)
 	}
 }
 
 // handleSOCKS5Client handles the initial SOCKS5 handshake and request parsing.
-func handleSOCKS5Client(conn net.Conn, decision RotationDecision, dnsPool, nonDNSPool, combinedPool []Proxy) error {
+func handleSOCKS5Client(conn net.Conn, decision RotationDecision, dnsPool, nonDNSPool, combinedPool []Proxy, obfuscation *ObfuscationConfig) error {
 	defer conn.Close()
 
 	// 1. SOCKS5 Handshake
@@ -454,7 +505,7 @@ func handleSOCKS5Client(conn net.Conn, decision RotationDecision, dnsPool, nonDN
 	fmt.Printf("%s Target requested: %s\n", col(cyan, "◈"), targetAddr)
 
 	// 3. Build circuit through the chain
-	server, err := buildCircuit(decision.Chain, targetAddr, dnsPool, nonDNSPool, combinedPool, decision.Mode, decision.Garlic)
+	server, err := buildCircuit(decision.Chain, targetAddr, dnsPool, nonDNSPool, combinedPool, decision.Mode, decision.Garlic, obfuscation)
 	if err != nil {
 		fmt.Printf("%s Failed to build circuit: %v\n", col(red, "✗"), err)
 		return fmt.Errorf("failed to build circuit: %v", err)
@@ -466,7 +517,7 @@ func handleSOCKS5Client(conn net.Conn, decision RotationDecision, dnsPool, nonDN
 	if decision.Garlic {
 		fmt.Printf("%s Garlic Mode: Building secondary inbound circuit...\n", col(cyan, "◈"))
 		// Attempt to build a second circuit for the inbound path
-		server2, err2 := buildCircuit(decision.Chain, targetAddr, dnsPool, nonDNSPool, combinedPool, decision.Mode, decision.Garlic)
+		server2, err2 := buildCircuit(decision.Chain, targetAddr, dnsPool, nonDNSPool, combinedPool, decision.Mode, decision.Garlic, obfuscation)
 		if err2 == nil {
 			defer server2.Close()
 			serverIn = server2
@@ -483,7 +534,7 @@ func handleSOCKS5Client(conn net.Conn, decision RotationDecision, dnsPool, nonDN
 
 	// 5. Pipe data — with AES-GCM encryption if keys are available
 	if len(decision.Encryption) > 0 {
-		return encryptedPipeGarlic(conn, server, serverIn, decision.Encryption, decision.Garlic)
+		return encryptedPipeGarlic(conn, server, serverIn, decision.Encryption, decision.Garlic, obfuscation)
 	}
 
 	// Fallback to plain pipe
@@ -500,7 +551,7 @@ func handleSOCKS5Client(conn net.Conn, decision RotationDecision, dnsPool, nonDN
 }
 
 // buildCircuit builds a multi-hop proxy circuit with retries and live rotation.
-func buildCircuit(chain []ChainHop, target string, dnsPool, nonDNSPool, combinedPool []Proxy, mode string, garlic bool) (net.Conn, error) {
+func buildCircuit(chain []ChainHop, target string, dnsPool, nonDNSPool, combinedPool []Proxy, mode string, garlic bool, obfuscation *ObfuscationConfig) (net.Conn, error) {
 	if len(chain) == 0 {
 		return nil, fmt.Errorf("empty proxy chain")
 	}
@@ -511,9 +562,9 @@ func buildCircuit(chain []ChainHop, target string, dnsPool, nonDNSPool, combined
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		if attempt > 0 {
-			fmt.Printf("%s Circuit build attempt %d/%d (rotating proxies)...\n", col(dim, "→"), attempt+1, maxRetries)
+			fmt.Printf("%s Circuit build attempt %d/%d (rotating proxies)....\n", col(dim, "→"), attempt+1, maxRetries)
 			// Rotate the chain on failure
-			newDecision, err := buildChainDecision(mode, dnsPool, nonDNSPool, combinedPool, garlic)
+			newDecision, err := buildChainDecision(mode, dnsPool, nonDNSPool, combinedPool, garlic, obfuscation)
 			if err == nil && newDecision != nil {
 				currentChain = newDecision.Chain
 			}

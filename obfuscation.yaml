@@ -1,0 +1,3 @@
+mode: simple
+jitter_range: 50
+padding_range: [128, 512]

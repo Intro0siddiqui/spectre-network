@@ -1,14 +1,14 @@
 # Implementation Plan: Phase 1: Ghost - Traffic Obfuscation
 
 **Phase 1: Foundation & Refinement**
-- [ ] **Task: Define Obfuscation Configuration**
-    - [ ] Create `obfuscation.yaml` schema and integrate into `orchestrator.go` (Go)
-    - [ ] Add CLI flags (`--obfuscation-mode`, `--jitter-range`, `--padding-range`) to `orchestrator.go` (Go)
-    - [ ] Update `RotationDecision` and `ChainHop` structs in `src/types.rs` to support obfuscation metadata (Rust/Go)
-- [ ] **Task: Refine Chaffing & Padding Logic**
-    - [ ] **Write Tests (Red Phase):** Add unit tests for `encryptedPipeGarlic` to verify randomized padding and chaffing (Go)
-    - [ ] **Implement (Green Phase):** Refine `encryptedPipeGarlic` in `tunnel.go` to support randomized padding and chaffing rates (Go)
-    - [ ] **Refactor:** Improve performance and clarity of the padding/chaffing loops (Go)
+- [x] **Task: Define Obfuscation Configuration** 1c3b0aa
+    - [x] Create `obfuscation.yaml` schema and integrate into `orchestrator.go` (Go) 1c3b0aa
+    - [x] Add CLI flags (`--obfuscation-mode`, `--jitter-range`, `--padding-range`) to `orchestrator.go` (Go) 1c3b0aa
+    - [x] Update `RotationDecision` and `ChainHop` structs in `src/types.rs` to support obfuscation metadata (Rust/Go) 1c3b0aa
+- [x] **Task: Refine Chaffing & Padding Logic** 1c3b0aa
+    - [x] **Write Tests (Red Phase):** Add unit tests for `encryptedPipeGarlic` to verify randomized padding and chaffing (Go) 1c3b0aa
+    - [x] **Implement (Green Phase):** Refine `encryptedPipeGarlic` in `tunnel.go` to support randomized padding and chaffing rates (Go) 1c3b0aa
+    - [x] **Refactor:** Improve performance and clarity of the padding/chaffing loops (Go) 1c3b0aa
 - [ ] **Task: Conductor - User Manual Verification 'Phase 1: Foundation & Refinement' (Protocol in workflow.md)**
 
 **Phase 2: Protocol Morphing (obfs4)**
