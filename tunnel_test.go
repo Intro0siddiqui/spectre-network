@@ -1,7 +1,10 @@
 package main
 
 import (
+	"fmt"
+	"io"
 	"net"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -140,3 +143,63 @@ func TestCryptoRoundtrip(t *testing.T) {
 		t.Errorf("Expected %s, got %s", string(plaintext), string(decrypted))
 	}
 }
+
+func TestMultiHopMimicry(t *testing.T) {
+	// 1. Setup a fake proxy server for Hop 1
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to listen: %v", err)
+	}
+	defer l.Close()
+	addr1 := l.Addr().String()
+	host1, port1Str, _ := net.SplitHostPort(addr1)
+	port1, _ := strconv.Atoi(port1Str)
+
+	mimic := &MimicConfig{
+		Protocol:    "https",
+		Fingerprint: "chrome",
+	}
+
+	chain := []ChainHop{
+		{IP: host1, Port: uint16(port1), Proto: "tcp"}, // Hop 1 (raw TCP for simpler test)
+		{IP: "127.0.0.2", Port: 8080, Proto: "socks5"}, // Hop 2
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		conn, err := l.Accept()
+		if err != nil {
+			errCh <- err
+			return
+		}
+		defer conn.Close()
+
+		// Verify Hop 1 mimicry (TLS ClientHello)
+		buf := make([]byte, 5)
+		conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+		if _, err := io.ReadFull(conn, buf); err != nil {
+			errCh <- fmt.Errorf("hop 1 read: %v", err)
+			return
+		}
+		if buf[0] != 0x16 {
+			errCh <- fmt.Errorf("hop 1 expected 0x16, got %x", buf[0])
+			return
+		}
+		errCh <- nil
+	}()
+
+	// Start circuit build
+	go func() {
+		buildCircuitInternal(chain, "example.com:80", mimic)
+	}()
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Errorf("Multi-hop mimicry error: %v", err)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Errorf("Timeout waiting for hop 1 verification")
+	}
+}
+

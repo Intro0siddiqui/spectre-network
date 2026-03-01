@@ -794,6 +794,9 @@ func parseRunArgs(args []string, defaultMode string, defaultLimit int, defaultPr
 	obfFile := flagStr(args, "--obfuscation-config", "obfuscation.yaml")
 	obfuscation = loadObfuscationConfig(obfFile)
 
+	sigFile := flagStr(args, "--signatures-config", "signatures.yaml")
+	_ = loadSignaturesConfig(sigFile) // We load it to ensure it's valid if user provided it
+
 	mimic = &MimicConfig{
 		Protocol:    flagStr(args, "--mimic-protocol", ""),
 		Fingerprint: flagStr(args, "--mimic-fingerprint", "chrome"),
