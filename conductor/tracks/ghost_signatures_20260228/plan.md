@@ -11,10 +11,10 @@
 - [x] **Task: Conductor - User Manual Verification 'Phase 1: Foundation & Fingerprinting Profile' (Protocol in workflow.md)** (d5398bd)
 
 **Phase 2: Handshake & Protocol Mimicry (Go)**
-- [ ] **Task: Implement TLS 1.3 Signature Handshake**
-    - [ ] **Write Tests (Red Phase):** Create unit tests in `tunnel_test.go` to verify a generated TLS ClientHello matches the desired JA3 signature (Go)
-    - [ ] **Implement (Green Phase):** Modify `handshakeProxy` in `tunnel.go` to wrap the initial connection in a `utls` TLS 1.3 ClientHello (Go)
-    - [ ] **Refactor:** Ensure the handshake logic handles error cases (e.g., failed mimicry fallback) (Go)
+- [x] **Task: Implement TLS 1.3 Signature Handshake** (7b14d7b)
+    - [x] **Write Tests (Red Phase):** Create unit tests in `tunnel_test.go` to verify a generated TLS ClientHello matches the desired JA3 signature (Go)
+    - [x] **Implement (Green Phase):** Modify `handshakeProxy` in `tunnel.go` to wrap the initial connection in a `utls` TLS 1.3 ClientHello (Go)
+    - [x] **Refactor:** Ensure the handshake logic handles error cases (e.g., failed mimicry fallback) (Go)
 - [ ] **Task: Implement QUIC-like Signature Wrapping**
     - [ ] **Write Tests (Red Phase):** Create tests to verify the generation of QUIC-like header signatures for the initial handshake (Go)
     - [ ] **Implement (Green Phase):** Add logic to `handshakeProxy` to apply pseudo-QUIC headers when `quic` protocol is selected (Go)
