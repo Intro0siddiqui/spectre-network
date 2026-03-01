@@ -23,6 +23,7 @@ import (
 	"time"
 	"unsafe"
 
+	utls "github.com/refraction-networking/utls"
 	"gitlab.com/yawning/obfs4.git/transports/obfs4"
 )
 
@@ -628,6 +629,33 @@ func buildCircuitInternal(chain []ChainHop, target string, mimic *MimicConfig) (
 	return conn, nil
 }
 
+
+func getFingerprintID(name string) utls.ClientHelloID {
+	switch strings.ToLower(name) {
+	case "chrome":
+		return utls.HelloChrome_120
+	case "firefox":
+		return utls.HelloFirefox_120
+	case "edge":
+		return utls.HelloEdge_Auto
+	case "youtube":
+		return utls.HelloChrome_120 // YouTube uses Chrome-like signatures
+	default:
+		return utls.HelloChrome_120 // Default to Chrome
+	}
+}
+
+func parseJA3(ja3 string) (*utls.ClientHelloSpec, error) {
+	// For now, we'll use utls's internal mapping or return a default spec.
+	// In the next task we'll implement full JA3 parsing if needed.
+	// utls.ClientHelloSpec can be generated from JA3 via some libraries, 
+	// but here we'll return the spec for the default Chrome ID for now.
+	spec, err := utls.UTLSIdToSpec(utls.HelloChrome_120)
+	if err != nil {
+		return nil, err
+	}
+	return &spec, nil
+}
 
 // handshakeProxy performs the protocol-specific handshake (SOCKS5 or HTTP CONNECT).
 func handshakeProxy(conn net.Conn, hop ChainHop, target string, mimic *MimicConfig) error {
