@@ -5,9 +5,9 @@
     - [x] Create `signatures.yaml` to store JA3/JA4 fingerprints and ALPN values (Go)
     - [x] Implement YAML parser in `orchestrator.go` and add `--mimic-protocol` and `--mimic-fingerprint` CLI flags (Go)
     - [x] Update internal connection state to store active signature metadata (Go)
-- [ ] **Task: Research and Integrate `utls` (Go)**
-    - [ ] Identify and add the `github.com/refraction-networking/utls` dependency to `go.mod` (Go)
-    - [ ] Create utility functions in `tunnel.go` to generate a TLS ClientHello matching specific JA3/JA4 fingerprints (Go)
+- [x] **Task: Research and Integrate `utls` (Go)** (600b2a9)
+    - [x] Identify and add the `github.com/refraction-networking/utls` dependency to `go.mod` (Go)
+    - [x] Create utility functions in `tunnel.go` to generate a TLS ClientHello matching specific JA3/JA4 fingerprints (Go)
 - [ ] **Task: Conductor - User Manual Verification 'Phase 1: Foundation & Fingerprinting Profile' (Protocol in workflow.md)**
 
 **Phase 2: Handshake & Protocol Mimicry (Go)**
