@@ -16,6 +16,9 @@
 - [x] **Protocol Morphing (Pluggable Transports)**
     - Wrap SOCKS5 traffic in HTTPS or QUIC so it looks like a YouTube stream
     - Support `obfs4` or `meek` (domain fronting) to bypass DPI blocklists
+- [x] **Protocol Signature Mimicry (Signatures)**
+    - Mimic specific browser JA3/JA4 TLS fingerprints and ALPN strings using `utls`
+    - Disguise handshakes as standard HTTPS or QUIC streams to evade DPI signatures
 
 ---
 

@@ -71,7 +71,9 @@ spectre <command> [flags]
 | `--garlic` | boolean | `false` |
 | `--obfuscation-mode` | `off` \| `simple` \| `advanced` \| `obfs4` | `off` |
 | `--jitter-range` | integer (ms) | `3000` |
-| `--padding-range` | `MIN-MAX` (bytes) | `512-1024` |
+| --padding-range | `MIN-MAX` (bytes) | `512-1024` |
+| `--mimic-protocol` | `https` \| `quic` \| `ssh` | `off` |
+| `--mimic-fingerprint` | `chrome` \| `firefox` \| `edge` \| `youtube` | `chrome` |
 
 ### Examples
 
@@ -84,6 +86,10 @@ spectre run --mode high --garlic --obfuscation-mode advanced --padding-range 256
 
 # obfs4 Pluggable Transport (Protocol Morphing)
 spectre run --mode lite --obfuscation-mode obfs4 --node-id <ID> --public-key <KEY>
+
+# Protocol Mimicry — Disguise traffic as a Chrome TLS 1.3 handshake or QUIC stream
+spectre run --mode phantom --mimic-protocol https --mimic-fingerprint chrome
+spectre run --mode high --mimic-protocol quic
 ```
 
 ---
@@ -118,6 +124,7 @@ Tier assignment is automatic based on weighted scoring (latency, anonymity, coun
 - ✅ Multi-hop SOCKS5 tunnel with AES-256-GCM encryption on every connection
 - ✅ **Traffic shaping (Garlic Mode)** — randomized packet padding and jitter injection to defeat timing correlation.
 - ✅ **Protocol morphing (obfs4)** — supports pluggable transports to bypass Deep Packet Inspection.
+- ✅ **Protocol signature mimicry** — disguise handshakes as TLS 1.3 (Chrome/Firefox JA3) or QUIC streams to evade DPI.
 - ✅ DNS routed through chain in `high`/`phantom` modes (no local DNS leaks)
 - ✅ Proxy pool persistence with live health re-verification
 - ✅ Randomised chain assembly on every rotation — no fixed exit IP
