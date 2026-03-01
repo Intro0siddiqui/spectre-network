@@ -86,6 +86,41 @@ func TestHandshakeProxyWithMimic(t *testing.T) {
 	}
 }
 
+func TestHandshakeProxyWithQUICMimic(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+
+	hop := ChainHop{
+		IP:    "127.0.0.1",
+		Port:  1080,
+		Proto: "socks5",
+	}
+
+	mimic := &MimicConfig{
+		Protocol:    "quic",
+		Fingerprint: "chrome",
+	}
+
+	go func() {
+		// This should initiate pseudo-QUIC header wrapping
+		handshakeProxy(client, hop, "example.com:80", mimic)
+	}()
+
+	// Read first few bytes from server
+	buf := make([]byte, 5)
+	server.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+	n, err := server.Read(buf)
+	if err != nil {
+		t.Fatalf("Failed to read from server: %v", err)
+	}
+
+	// Pseudo-QUIC header should start with 0xc0 (Long Header) for version negotiation or initial
+	if n < 1 || buf[0] != 0xc0 {
+		t.Errorf("Expected pseudo-QUIC header (0xc0), got %x", buf[0])
+	}
+}
+
 func TestCryptoRoundtrip(t *testing.T) {
 	keyHex := "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
 	nonceHex := "000102030405060708090a0b"

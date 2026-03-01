@@ -629,6 +629,38 @@ func buildCircuitInternal(chain []ChainHop, target string, mimic *MimicConfig) (
 	return conn, nil
 }
 
+// QUICConn wraps a net.Conn and prepends a pseudo-QUIC header to the first Write.
+type QUICConn struct {
+	net.Conn
+	handshakeDone bool
+}
+
+func (c *QUICConn) Write(b []byte) (n int, err error) {
+	if !c.handshakeDone {
+		// Send pseudo-QUIC Initial packet header
+		// 0xc0: Long Header, 0x00000001: Version 1
+		// We'll add some random Connection IDs to look more like a real Initial packet
+		dcidLen := 8 + rand.Intn(12) // 8 to 20 bytes
+		scidLen := 8 + rand.Intn(12)
+		
+		header := make([]byte, 1+4+1+dcidLen+1+scidLen)
+		header[0] = 0xc0 // Long Header
+		// Version 1: 0x00000001
+		binary.BigEndian.PutUint32(header[1:5], 1)
+		
+		header[5] = byte(dcidLen)
+		rand.Read(header[6 : 6+dcidLen])
+		
+		header[6+dcidLen] = byte(scidLen)
+		rand.Read(header[7+dcidLen : 7+dcidLen+scidLen])
+		
+		if _, err := c.Conn.Write(header); err != nil {
+			return 0, err
+		}
+		c.handshakeDone = true
+	}
+	return c.Conn.Write(b)
+}
 
 func getFingerprintID(name string) utls.ClientHelloID {
 	switch strings.ToLower(name) {
@@ -674,6 +706,10 @@ func handshakeProxy(conn net.Conn, hop ChainHop, target string, mimic *MimicConf
 			return fmt.Errorf("tls mimicry handshake failed: %v", err)
 		}
 		currentConn = uconn
+	}
+
+	if mimic != nil && mimic.Protocol == "quic" {
+		currentConn = &QUICConn{Conn: currentConn}
 	}
 
 	// Apply obfs4 wrapper if configured
