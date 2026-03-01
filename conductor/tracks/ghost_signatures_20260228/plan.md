@@ -1,10 +1,10 @@
 # Implementation Plan: Ghost Phase 1 - Protocol Signature Mimicry (Signatures)
 
 **Phase 1: Foundation & Fingerprinting Profile (Go)**
-- [ ] **Task: Define Signature Configuration & Profiles**
-    - [ ] Create `signatures.yaml` to store JA3/JA4 fingerprints and ALPN values (Go)
-    - [ ] Implement YAML parser in `orchestrator.go` and add `--mimic-protocol` and `--mimic-fingerprint` CLI flags (Go)
-    - [ ] Update internal connection state to store active signature metadata (Go)
+- [x] **Task: Define Signature Configuration & Profiles** (68dd417)
+    - [x] Create `signatures.yaml` to store JA3/JA4 fingerprints and ALPN values (Go)
+    - [x] Implement YAML parser in `orchestrator.go` and add `--mimic-protocol` and `--mimic-fingerprint` CLI flags (Go)
+    - [x] Update internal connection state to store active signature metadata (Go)
 - [ ] **Task: Research and Integrate `utls` (Go)**
     - [ ] Identify and add the `github.com/refraction-networking/utls` dependency to `go.mod` (Go)
     - [ ] Create utility functions in `tunnel.go` to generate a TLS ClientHello matching specific JA3/JA4 fingerprints (Go)
