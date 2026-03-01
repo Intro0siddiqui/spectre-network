@@ -21,7 +21,7 @@
     - [x] **Refactor:** Optimize signature generation to minimize handshake latency (Go)
 - [x] **Task: Conductor - User Manual Verification 'Phase 2: Handshake & Protocol Mimicry' (Protocol in workflow.md)** (52dd9e1)
 
-**Phase 3: Integration & Global Validation (Go/Rust)**
+**Phase 3: Integration & Global Validation (Go/Rust)** [checkpoint: fe2e9c1]
 - [x] **Task: Multi-Hop Mimicry Coordination** (5049edc)
     - [x] **Write Tests (Red Phase):** Create integration tests verifying mimicry is applied across all hops in a multi-hop circuit (Go/Rust)
     - [x] **Implement (Green Phase):** Ensure `buildCircuitInternal` correctly propagates and applies signature settings across hops (Go)
@@ -29,4 +29,4 @@
 - [x] **Task: Security Audit & Cleanup** (2652fe6)
     - [x] Update `ROADMAP.md` and `README.md` with protocol mimicry details (Docs)
     - [x] Final security review of the signature mimicry to ensure it doesn't leak Spectre internal traffic patterns (Audit)
-- [ ] **Task: Conductor - User Manual Verification 'Phase 3: Integration & Global Validation' (Protocol in workflow.md)**
+- [x] **Task: Conductor - User Manual Verification 'Phase 3: Integration & Global Validation' (Protocol in workflow.md)** (fe2e9c1)
