@@ -16,7 +16,7 @@ func TestSOCKS5Handshake(t *testing.T) {
 	// Run handleSOCKS5Client in a goroutine
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- handleSOCKS5Client(server, RotationDecision{}, nil, nil, nil, nil)
+		errCh <- handleSOCKS5Client(server, RotationDecision{}, nil, nil, nil, nil, nil)
 	}()
 
 	// 1. Send version and methods
@@ -45,7 +45,7 @@ func TestSOCKS5Handshake(t *testing.T) {
 
 func TestBuildCircuit(t *testing.T) {
 	chain := []ChainHop{}
-	_, err := buildCircuit(chain, "example.com:80", nil, nil, nil, "lite", false, nil)
+	_, err := buildCircuit(chain, "example.com:80", nil, nil, nil, "lite", false, nil, nil)
 	if err == nil {
 		t.Errorf("Expected error for empty chain")
 	}

@@ -363,7 +363,7 @@ func decryptWithCounter(keyHex, nonceHex string, counter uint64, ciphertext []by
 }
 
 // startSOCKS5Server starts the SOCKS5 server with live rotation.
-func startSOCKS5Server(port int, initialDecision RotationDecision, dnsPool, nonDNSPool, combinedPool []Proxy, obfuscation *ObfuscationConfig) error {
+func startSOCKS5Server(port int, initialDecision RotationDecision, dnsPool, nonDNSPool, combinedPool []Proxy, obfuscation *ObfuscationConfig, mimic *MimicConfig) error {
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -386,7 +386,7 @@ func startSOCKS5Server(port int, initialDecision RotationDecision, dnsPool, nonD
 			mu.RUnlock()
 
 			fmt.Printf("%s Health check: rotating chain for mode %s\n", col(cyan, "◈"), mode)
-			newDecision, err := buildChainDecision(mode, dnsPool, nonDNSPool, combinedPool, currentDecision.Garlic, obfuscation)
+			newDecision, err := buildChainDecision(mode, dnsPool, nonDNSPool, combinedPool, currentDecision.Garlic, obfuscation, mimic)
 			if err == nil && newDecision != nil {
 				mu.Lock()
 				currentDecision = *newDecision
@@ -407,16 +407,16 @@ func startSOCKS5Server(port int, initialDecision RotationDecision, dnsPool, nonD
 		d := currentDecision
 		mu.RUnlock()
 
-		go func(c net.Conn, d RotationDecision, obf *ObfuscationConfig) {
-			if err := handleSOCKS5Client(c, d, dnsPool, nonDNSPool, combinedPool, obf); err != nil {
+		go func(c net.Conn, d RotationDecision, obf *ObfuscationConfig, mim *MimicConfig) {
+			if err := handleSOCKS5Client(c, d, dnsPool, nonDNSPool, combinedPool, obf, mim); err != nil {
 				// Silently log or handle connection errors
 			}
-		}(client, d, obfuscation)
+		}(client, d, obfuscation, mimic)
 	}
 }
 
 // handleSOCKS5Client handles the initial SOCKS5 handshake and request parsing.
-func handleSOCKS5Client(conn net.Conn, decision RotationDecision, dnsPool, nonDNSPool, combinedPool []Proxy, obfuscation *ObfuscationConfig) error {
+func handleSOCKS5Client(conn net.Conn, decision RotationDecision, dnsPool, nonDNSPool, combinedPool []Proxy, obfuscation *ObfuscationConfig, mimic *MimicConfig) error {
 	defer conn.Close()
 
 	// 1. SOCKS5 Handshake
@@ -507,7 +507,7 @@ func handleSOCKS5Client(conn net.Conn, decision RotationDecision, dnsPool, nonDN
 	fmt.Printf("%s Target requested: %s\n", col(cyan, "◈"), targetAddr)
 
 	// 3. Build circuit through the chain
-	server, err := buildCircuit(decision.Chain, targetAddr, dnsPool, nonDNSPool, combinedPool, decision.Mode, decision.Garlic, obfuscation)
+	server, err := buildCircuit(decision.Chain, targetAddr, dnsPool, nonDNSPool, combinedPool, decision.Mode, decision.Garlic, obfuscation, mimic)
 	if err != nil {
 		fmt.Printf("%s Failed to build circuit: %v\n", col(red, "✗"), err)
 		return fmt.Errorf("failed to build circuit: %v", err)
@@ -519,7 +519,7 @@ func handleSOCKS5Client(conn net.Conn, decision RotationDecision, dnsPool, nonDN
 	if decision.Garlic {
 		fmt.Printf("%s Garlic Mode: Building secondary inbound circuit...\n", col(cyan, "◈"))
 		// Attempt to build a second circuit for the inbound path
-		server2, err2 := buildCircuit(decision.Chain, targetAddr, dnsPool, nonDNSPool, combinedPool, decision.Mode, decision.Garlic, obfuscation)
+		server2, err2 := buildCircuit(decision.Chain, targetAddr, dnsPool, nonDNSPool, combinedPool, decision.Mode, decision.Garlic, obfuscation, mimic)
 		if err2 == nil {
 			defer server2.Close()
 			serverIn = server2
@@ -553,7 +553,7 @@ func handleSOCKS5Client(conn net.Conn, decision RotationDecision, dnsPool, nonDN
 }
 
 // buildCircuit builds a multi-hop proxy circuit with retries and live rotation.
-func buildCircuit(chain []ChainHop, target string, dnsPool, nonDNSPool, combinedPool []Proxy, mode string, garlic bool, obfuscation *ObfuscationConfig) (net.Conn, error) {
+func buildCircuit(chain []ChainHop, target string, dnsPool, nonDNSPool, combinedPool []Proxy, mode string, garlic bool, obfuscation *ObfuscationConfig, mimic *MimicConfig) (net.Conn, error) {
 	if len(chain) == 0 {
 		return nil, fmt.Errorf("empty proxy chain")
 	}
@@ -566,13 +566,13 @@ func buildCircuit(chain []ChainHop, target string, dnsPool, nonDNSPool, combined
 		if attempt > 0 {
 			fmt.Printf("%s Circuit build attempt %d/%d (rotating proxies)....\n", col(dim, "→"), attempt+1, maxRetries)
 			// Rotate the chain on failure
-			newDecision, err := buildChainDecision(mode, dnsPool, nonDNSPool, combinedPool, garlic, obfuscation)
+			newDecision, err := buildChainDecision(mode, dnsPool, nonDNSPool, combinedPool, garlic, obfuscation, mimic)
 			if err == nil && newDecision != nil {
 				currentChain = newDecision.Chain
 			}
 		}
 
-		conn, err := buildCircuitInternal(currentChain, target)
+		conn, err := buildCircuitInternal(currentChain, target, mimic)
 		if err == nil {
 			return conn, nil
 		}
@@ -585,7 +585,7 @@ func buildCircuit(chain []ChainHop, target string, dnsPool, nonDNSPool, combined
 	return nil, fmt.Errorf("all retries failed: %v", lastErr)
 }
 
-func buildCircuitInternal(chain []ChainHop, target string) (net.Conn, error) {
+func buildCircuitInternal(chain []ChainHop, target string, mimic *MimicConfig) (net.Conn, error) {
 	fmt.Printf("%s Building circuit through %d hops to %s\n", col(dim, "→"), len(chain), target)
 
 	// Connect to first hop
@@ -604,7 +604,7 @@ func buildCircuitInternal(chain []ChainHop, target string) (net.Conn, error) {
 	}
 
 	fmt.Printf("%s Handshaking with hop 1 (%s) -> %s\n", col(dim, "  →"), first.IP, nextDest)
-	if err := handshakeProxy(conn, first, nextDest); err != nil {
+	if err := handshakeProxy(conn, first, nextDest, mimic); err != nil {
 		conn.Close()
 		return nil, err
 	}
@@ -619,7 +619,7 @@ func buildCircuitInternal(chain []ChainHop, target string) (net.Conn, error) {
 		}
 
 		fmt.Printf("%s Handshaking with hop %d (%s) -> %s\n", col(dim, "  →"), i+1, current.IP, nextDest)
-		if err := handshakeProxy(conn, current, nextDest); err != nil {
+		if err := handshakeProxy(conn, current, nextDest, mimic); err != nil {
 			conn.Close()
 			return nil, err
 		}
@@ -630,13 +630,18 @@ func buildCircuitInternal(chain []ChainHop, target string) (net.Conn, error) {
 
 
 // handshakeProxy performs the protocol-specific handshake (SOCKS5 or HTTP CONNECT).
-func handshakeProxy(conn net.Conn, hop ChainHop, target string) error {
+func handshakeProxy(conn net.Conn, hop ChainHop, target string, mimic *MimicConfig) error {
 	// Set deadline for the whole handshake
 	conn.SetDeadline(time.Now().Add(10 * time.Second))
 	defer conn.SetDeadline(time.Time{})
 
-	// Apply obfs4 wrapper if configured
+	// Apply mimicry wrapper if configured
 	var currentConn net.Conn = conn
+	if mimic != nil && mimic.Protocol != "" {
+		// Mimicry will be handled in the next task, but we pass it through here
+	}
+
+	// Apply obfs4 wrapper if configured
 	if hop.Obfuscation != nil && hop.Obfuscation.Mode == "obfs4" {
 		var err error
 		currentConn, err = wrapObfs4Client(conn, fmt.Sprintf("%s:%d", hop.IP, hop.Port), hop.Obfuscation)

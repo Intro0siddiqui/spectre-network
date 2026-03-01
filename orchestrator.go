@@ -82,6 +82,21 @@ type PolishResult struct {
 	Combined []Proxy `json:"combined"`
 }
 
+type SignatureProfile struct {
+	JA3  string `json:"ja3" yaml:"ja3"`
+	JA4  string `json:"ja4,omitempty" yaml:"ja4,omitempty"`
+	ALPN string `json:"alpn" yaml:"alpn"`
+}
+
+type SignatureConfig struct {
+	Profiles map[string]SignatureProfile `json:"profiles" yaml:"profiles"`
+}
+
+type MimicConfig struct {
+	Protocol    string `json:"protocol" yaml:"protocol"` // "https", "quic", "ssh"
+	Fingerprint string `json:"fingerprint" yaml:"fingerprint"`
+}
+
 type ChainHop struct {
 	IP          string             `json:"ip"`
 	Port        uint16             `json:"port"`
@@ -90,6 +105,7 @@ type ChainHop struct {
 	Latency     float64            `json:"latency"`
 	Score       float64            `json:"score"`
 	Obfuscation *ObfuscationConfig `json:"obfuscation,omitempty"`
+	Mimic       *MimicConfig       `json:"mimic,omitempty"`
 }
 
 type ObfuscationConfig struct {
@@ -216,7 +232,7 @@ func main() {
 
 	switch cmd {
 	case "run":
-		mode, limit, protocol, garlic, obfuscation := parseRunArgs(args, "phantom", 500, "all")
+		mode, limit, protocol, garlic, obfuscation, mimic := parseRunArgs(args, "phantom", 500, "all")
 		weights := parseWeightArgs(args)
 		// Validate inputs before proceeding
 		if sanitizedMode, ok := sanitizeMode(mode); !ok {
@@ -233,10 +249,10 @@ func main() {
 			fmt.Printf("%s Invalid protocol: %s. Allowed: all, socks5, https, http\n", col(red, "✗"), protocol)
 			os.Exit(1)
 		}
-		cmdRun(workspace, mode, limit, protocol, weights, garlic, obfuscation)
+		cmdRun(workspace, mode, limit, protocol, weights, garlic, obfuscation, mimic)
 
 	case "refresh":
-		mode, limit, protocol, garlic, obfuscation := parseRunArgs(args, "phantom", 500, "all")
+		mode, limit, protocol, garlic, obfuscation, mimic := parseRunArgs(args, "phantom", 500, "all")
 		weights := parseWeightArgs(args)
 		// Validate inputs before proceeding
 		if sanitizedMode, ok := sanitizeMode(mode); !ok {
@@ -253,10 +269,10 @@ func main() {
 			fmt.Printf("%s Invalid protocol: %s. Allowed: all, socks5, https, http\n", col(red, "✗"), protocol)
 			os.Exit(1)
 		}
-		cmdRefresh(workspace, mode, limit, protocol, weights, garlic, obfuscation)
+		cmdRefresh(workspace, mode, limit, protocol, weights, garlic, obfuscation, mimic)
 
 	case "rotate":
-		mode, _, _, garlic, obfuscation := parseRunArgs(args, "phantom", 0, "")
+		mode, _, _, garlic, obfuscation, mimic := parseRunArgs(args, "phantom", 0, "")
 		// Validate mode before proceeding
 		if sanitizedMode, ok := sanitizeMode(mode); !ok {
 			fmt.Printf("%s Invalid mode: %s. Allowed: lite, stealth, high, phantom\n", col(red, "✗"), mode)
@@ -264,7 +280,7 @@ func main() {
 		} else {
 			mode = sanitizedMode
 		}
-		cmdRotate(workspace, mode, garlic, obfuscation)
+		cmdRotate(workspace, mode, garlic, obfuscation, mimic)
 
 	case "stats":
 		cmdStats(workspace)
@@ -286,7 +302,7 @@ func main() {
 		cmdAudit()
 
 	case "serve":
-		mode, _, _, garlic, obfuscation := parseRunArgs(args, "phantom", 0, "")
+		mode, _, _, garlic, obfuscation, mimic := parseRunArgs(args, "phantom", 0, "")
 		portStr := flagStr(args, "--port", "1080")
 		port, _ := strconv.Atoi(portStr)
 		if sanitizedMode, ok := sanitizeMode(mode); !ok {
@@ -295,7 +311,7 @@ func main() {
 		} else {
 			mode = sanitizedMode
 		}
-		cmdServe(workspace, mode, port, garlic, obfuscation)
+		cmdServe(workspace, mode, port, garlic, obfuscation, mimic)
 
 	case "help", "--help", "-h":
 		printHelp()
@@ -311,7 +327,7 @@ func main() {
 
 // spectre run [--mode phantom|high|stealth|lite] [--limit N] [--protocol all|socks5|https]
 // Full pipeline: scrape → polish → rotate → print chain
-func cmdRun(workspace, mode string, limit int, protocol string, weights ScoringWeights, garlic bool, obfuscation *ObfuscationConfig) {
+func cmdRun(workspace, mode string, limit int, protocol string, weights ScoringWeights, garlic bool, obfuscation *ObfuscationConfig, mimic *MimicConfig) {
 	printBanner()
 	fmt.Printf("%s Scraping fresh proxies (limit=%d, protocol=%s)...\n", col(cyan, "◈"), limit, protocol)
 	raw, err := runScraper(workspace, limit, protocol)
@@ -328,7 +344,7 @@ func cmdRun(workspace, mode string, limit int, protocol string, weights ScoringW
 		col(bold, fmt.Sprintf("%d", len(dns))),
 		col(bold, fmt.Sprintf("%d", len(nonDNS))))
 
-	decision, err := buildChainDecision(mode, dns, nonDNS, combined, garlic, obfuscation)
+	decision, err := buildChainDecision(mode, dns, nonDNS, combined, garlic, obfuscation, mimic)
 	if err != nil || decision == nil {
 		log.Fatalf("%s no chain built — pool may be too small for mode %q", col(red, "✗"), mode)
 	}
@@ -337,12 +353,12 @@ func cmdRun(workspace, mode string, limit int, protocol string, weights ScoringW
 
 // spectre refresh [--mode ...] [--limit N] [--protocol ...]
 // Re-verify stored pool → fill delta if needed → rotate
-func cmdRefresh(workspace, mode string, limit int, protocol string, weights ScoringWeights, garlic bool, obfuscation *ObfuscationConfig) {
+func cmdRefresh(workspace, mode string, limit int, protocol string, weights ScoringWeights, garlic bool, obfuscation *ObfuscationConfig, mimic *MimicConfig) {
 	printBanner()
 	combinedPath := filepath.Join(workspace, "proxies_combined.json")
 	if _, err := os.Stat(combinedPath); os.IsNotExist(err) {
 		fmt.Printf("%s No stored pool found — running full scrape instead.\n", col(yellow, "⚠"))
-		cmdRun(workspace, mode, limit, protocol, weights, garlic, obfuscation)
+		cmdRun(workspace, mode, limit, protocol, weights, garlic, obfuscation, mimic)
 		return
 	}
 	fmt.Printf("%s Loading stored pool...\n", col(cyan, "◈"))
@@ -360,7 +376,7 @@ func cmdRefresh(workspace, mode string, limit int, protocol string, weights Scor
 		col(bold, fmt.Sprintf("%d", len(dns))),
 		col(bold, fmt.Sprintf("%d", len(nonDNS))))
 
-	decision, err := buildChainDecision(mode, dns, nonDNS, combined, garlic, obfuscation)
+	decision, err := buildChainDecision(mode, dns, nonDNS, combined, garlic, obfuscation, mimic)
 	if err != nil || decision == nil {
 		log.Fatalf("%s Could not rebuild chain for mode %q", col(red, "✗"), mode)
 	}
@@ -376,13 +392,13 @@ func runVerify(workspace string, proxies []Proxy, weights ScoringWeights) (dns, 
 
 // spectre rotate [--mode ...]
 // Use existing pool on disk to build a new chain
-func cmdRotate(workspace, mode string, garlic bool, obfuscation *ObfuscationConfig) {
+func cmdRotate(workspace, mode string, garlic bool, obfuscation *ObfuscationConfig, mimic *MimicConfig) {
 	printBanner()
 	dns, nonDNS, combined := loadPools(workspace)
 	if len(combined) == 0 {
 		log.Fatalf("%s No proxy pool on disk. Run `spectre run` first.", col(red, "✗"))
 	}
-	decision, err := buildChainDecision(mode, dns, nonDNS, combined, garlic, obfuscation)
+	decision, err := buildChainDecision(mode, dns, nonDNS, combined, garlic, obfuscation, mimic)
 	if err != nil || decision == nil {
 		log.Fatalf("%s Could not build chain for mode %q — try `spectre run` to refresh the pool.", col(red, "✗"), mode)
 	}
@@ -390,13 +406,13 @@ func cmdRotate(workspace, mode string, garlic bool, obfuscation *ObfuscationConf
 }
 
 // spectre serve [--mode M] [--port P]
-func cmdServe(workspace, mode string, port int, garlic bool, obfuscation *ObfuscationConfig) {
+func cmdServe(workspace, mode string, port int, garlic bool, obfuscation *ObfuscationConfig, mimic *MimicConfig) {
 	printBanner()
 	dns, nonDNS, combined := loadPools(workspace)
 	if len(combined) == 0 {
 		log.Fatalf("%s No proxy pool on disk. Run `spectre run` first.", col(red, "✗"))
 	}
-	decision, err := buildChainDecision(mode, dns, nonDNS, combined, garlic, obfuscation)
+	decision, err := buildChainDecision(mode, dns, nonDNS, combined, garlic, obfuscation, mimic)
 	if err != nil || decision == nil {
 		log.Fatalf("%s Could not build chain for mode %q", col(red, "✗"), mode)
 	}
@@ -404,7 +420,7 @@ func cmdServe(workspace, mode string, port int, garlic bool, obfuscation *Obfusc
 
 	fmt.Printf("%s Starting SOCKS5 server on port %d with live rotation...\n", col(green, "✓"), port)
 
-	if err := startSOCKS5Server(port, *decision, dns, nonDNS, combined, obfuscation); err != nil {
+	if err := startSOCKS5Server(port, *decision, dns, nonDNS, combined, obfuscation, mimic); err != nil {
 		log.Fatalf("%s Server failed: %v", col(red, "✗"), err)
 	}
 }
@@ -529,6 +545,9 @@ func printHelp() {
   --jitter-range        N (ms)
   --padding-range       MIN-MAX (bytes)
   --obfuscation-config  path/to/yaml
+  --mimic-protocol      https | quic | ssh
+  --mimic-fingerprint   chrome | firefox | edge | youtube (default: chrome)
+  --signatures-config   path/to/yaml (default: signatures.yaml)
 
 %s
   spectre run --mode phantom --limit 1000
@@ -632,7 +651,7 @@ func runPolish(workspace string, proxies []Proxy, weights ScoringWeights) (dns, 
 	return result.DNS, result.NonDNS, result.Combined, nil
 }
 
-func buildChainDecision(mode string, dns, nonDNS, combined []Proxy, garlic bool, obfuscation *ObfuscationConfig) (*RotationDecision, error) {
+func buildChainDecision(mode string, dns, nonDNS, combined []Proxy, garlic bool, obfuscation *ObfuscationConfig, mimic *MimicConfig) (*RotationDecision, error) {
 	// Validate mode before passing to Rust FFI
 	if !validateMode(mode) {
 		return nil, fmt.Errorf("invalid mode: %s (allowed: lite, stealth, high, phantom)", mode)
@@ -672,6 +691,13 @@ func buildChainDecision(mode string, dns, nonDNS, combined []Proxy, garlic bool,
 		}
 	}
 
+	// Inject mimic config if active
+	if mimic != nil && mimic.Protocol != "" {
+		for i := range d.Chain {
+			d.Chain[i].Mimic = mimic
+		}
+	}
+
 	return &d, nil
 }
 
@@ -685,6 +711,21 @@ func loadProxies(path string) []Proxy {
 	var p []Proxy
 	_ = json.Unmarshal(data, &p)
 	return p
+}
+
+func loadSignaturesConfig(path string) *SignatureConfig {
+	config := &SignatureConfig{
+		Profiles: make(map[string]SignatureProfile),
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return config
+	}
+	err = yaml.Unmarshal(data, config)
+	if err != nil {
+		log.Printf("%s Error parsing signatures config: %v\n", col(red, "✗"), err)
+	}
+	return config
 }
 
 func loadObfuscationConfig(path string) *ObfuscationConfig {
@@ -744,7 +785,7 @@ func flagBool(args []string, name string) bool {
 	return false
 }
 
-func parseRunArgs(args []string, defaultMode string, defaultLimit int, defaultProto string) (mode string, limit int, protocol string, garlic bool, obfuscation *ObfuscationConfig) {
+func parseRunArgs(args []string, defaultMode string, defaultLimit int, defaultProto string) (mode string, limit int, protocol string, garlic bool, obfuscation *ObfuscationConfig, mimic *MimicConfig) {
 	mode = flagStr(args, "--mode", defaultMode)
 	limit = flagInt(args, "--limit", defaultLimit)
 	protocol = flagStr(args, "--protocol", defaultProto)
@@ -752,6 +793,11 @@ func parseRunArgs(args []string, defaultMode string, defaultLimit int, defaultPr
 
 	obfFile := flagStr(args, "--obfuscation-config", "obfuscation.yaml")
 	obfuscation = loadObfuscationConfig(obfFile)
+
+	mimic = &MimicConfig{
+		Protocol:    flagStr(args, "--mimic-protocol", ""),
+		Fingerprint: flagStr(args, "--mimic-fingerprint", "chrome"),
+	}
 
 	if m := flagStr(args, "--obfuscation-mode", ""); m != "" {
 		obfuscation.Mode = m

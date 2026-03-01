@@ -54,8 +54,7 @@ func TestHandshakeProxyWithObfs4(t *testing.T) {
 
 	go func() {
 		// This should initiate obfs4 handshake
-		handshakeProxy(client, hop, "example.com:80")
-	}()
+		handshakeProxy(client, hop, "example.com:80", nil)	}()
 
 	// Read first few bytes from server
 	buf := make([]byte, 3)
