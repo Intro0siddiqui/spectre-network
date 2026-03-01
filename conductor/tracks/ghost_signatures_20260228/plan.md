@@ -26,7 +26,7 @@
     - [x] **Write Tests (Red Phase):** Create integration tests verifying mimicry is applied across all hops in a multi-hop circuit (Go/Rust)
     - [x] **Implement (Green Phase):** Ensure `buildCircuitInternal` correctly propagates and applies signature settings across hops (Go)
     - [x] **Refactor:** Clean up global configuration state to ensure mimicry is consistent (Go)
-- [ ] **Task: Security Audit & Cleanup**
-    - [ ] Update `ROADMAP.md` and `README.md` with protocol mimicry details (Docs)
-    - [ ] Final security review of the signature mimicry to ensure it doesn't leak Spectre internal traffic patterns (Audit)
+- [x] **Task: Security Audit & Cleanup** (2652fe6)
+    - [x] Update `ROADMAP.md` and `README.md` with protocol mimicry details (Docs)
+    - [x] Final security review of the signature mimicry to ensure it doesn't leak Spectre internal traffic patterns (Audit)
 - [ ] **Task: Conductor - User Manual Verification 'Phase 3: Integration & Global Validation' (Protocol in workflow.md)**
