@@ -665,8 +665,15 @@ func handshakeProxy(conn net.Conn, hop ChainHop, target string, mimic *MimicConf
 
 	// Apply mimicry wrapper if configured
 	var currentConn net.Conn = conn
-	if mimic != nil && mimic.Protocol != "" {
-		// Mimicry will be handled in the next task, but we pass it through here
+	if mimic != nil && mimic.Protocol == "https" {
+		id := getFingerprintID(mimic.Fingerprint)
+		uconn := utls.UClient(conn, &utls.Config{InsecureSkipVerify: true}, id)
+		if err := uconn.Handshake(); err != nil {
+			// If handshake fails, we might want to fallback or return error
+			// For now we'll just return error to be safe
+			return fmt.Errorf("tls mimicry handshake failed: %v", err)
+		}
+		currentConn = uconn
 	}
 
 	// Apply obfs4 wrapper if configured

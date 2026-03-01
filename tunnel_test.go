@@ -51,6 +51,41 @@ func TestBuildCircuit(t *testing.T) {
 	}
 }
 
+func TestHandshakeProxyWithMimic(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+
+	hop := ChainHop{
+		IP:    "127.0.0.1",
+		Port:  1080,
+		Proto: "socks5",
+	}
+
+	mimic := &MimicConfig{
+		Protocol:    "https",
+		Fingerprint: "chrome",
+	}
+
+	go func() {
+		// This should initiate TLS handshake via utls
+		handshakeProxy(client, hop, "example.com:80", mimic)
+	}()
+
+	// Read first few bytes from server
+	buf := make([]byte, 5)
+	server.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+	n, err := server.Read(buf)
+	if err != nil {
+		t.Fatalf("Failed to read from server: %v", err)
+	}
+
+	// TLS ClientHello starts with 0x16 (Handshake)
+	if n < 1 || buf[0] != 0x16 {
+		t.Errorf("Expected TLS ClientHello (0x16), got %x", buf[0])
+	}
+}
+
 func TestCryptoRoundtrip(t *testing.T) {
 	keyHex := "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
 	nonceHex := "000102030405060708090a0b"
