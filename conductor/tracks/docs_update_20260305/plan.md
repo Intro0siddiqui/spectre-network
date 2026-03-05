@@ -6,9 +6,9 @@
 - [x] Task: Conductor - User Manual Verification 'Phase 1: Research & High-Level Summaries' (Protocol in workflow.md)
 
 ## Phase 2: Technical Documentation Updates
-- [ ] Task: Update `README.md` with current project overview, setup instructions (Go/Rust/Podman), and usage examples.
-- [ ] Task: Update `ROADMAP.md` to reflect completed milestones and new objectives.
-- [ ] Task: Update `architecture.md` with detailed technical specifications of the current system, focusing on the Go/Rust FFI boundary.
+- [x] Task: Update `README.md` with current project overview, setup instructions (Go/Rust/Podman), and usage examples.
+- [x] Task: Update `ROADMAP.md` to reflect completed milestones and new objectives.
+- [x] Task: Update `architecture.md` with detailed technical specifications of the current system, focusing on the Go/Rust FFI boundary.
 - [ ] Task: Conductor - User Manual Verification 'Phase 2: Technical Documentation Updates' (Protocol in workflow.md)
 
 ## Phase 3: In-Code Documentation & Final Review

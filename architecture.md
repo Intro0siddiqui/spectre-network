@@ -1,5 +1,9 @@
 # Spectre Network: Architectural Deep Dive
 
+> **Non-Technical Summary:** Think of Spectre Network as a team with two specialized members. One member (the "Go" side) is the expert at talking to the internet, finding proxies, and moving data quickly. The other member (the "Rust" side) is the math and security expert, responsible for the heavy lifting of scrambling your data and calculating the best paths through the network. They work together inside a single application to provide a seamless, secure, and fast experience while keeping the risky parts of the internet separate from the security-critical logic.
+
+---
+
 Spectre Network is an adversarial proxy mesh designed to farm its own proxy pool, score it, and assemble multi-hop AES-256-GCM encrypted relay chains. It operates entirely without relying on any third-party VPN subscriptions or centralized proxy networks, prioritizing security, anonymity, and deep traffic isolation.
 
 This document serves as an exhaustive architectural blueprint detailing the cross-language design choices, the internal workflow, and an in-depth explanation of every file in the codebase.
@@ -41,6 +45,7 @@ The **Go-native SOCKS5 Server & Multi-hop Tunnel**.
 - Implements the SOCKS5 interface for incoming client connections.
 - Negotiates multi-hop proxy circuits (SOCKS5 or HTTP CONNECT) through chains of 1 to 5 proxies.
 - Implements the `encryptedPipeGarlic` function, which pumps data with efficient multi-layered AES-256-GCM encryption.
+- **Protocol Mimicry:** Integrates `utls` to disguise handshakes as TLS 1.3 (Chrome/Firefox) or QUIC streams, evading Deep Packet Inspection (DPI).
 - **Efficient Layered Encryption:** Uses a single FFI call to Rust to apply all encryption/decryption layers, minimizing CGO overhead.
 - **Garlic Routing Features:** 
   - **Packet Padding:** Every packet is padded to a 512-byte multiple to hide traffic size.

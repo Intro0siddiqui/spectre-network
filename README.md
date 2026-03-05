@@ -1,5 +1,9 @@
 # Spectre Network
 
+> **Non-Technical Summary:** Spectre Network is your own personal, high-speed privacy tunnel. It doesn't rely on any big VPN companies. Instead, it finds free public proxies across the internet, tests them to find the fastest ones, and strings them together into a "chain." Your internet traffic is then scrambled and sent through this chain, making it very difficult for anyone—including your ISP or the websites you visit—to see who you are or what you're doing. It's built to be tough, hiding its own tracks by making its traffic look like normal web browsing or video streaming.
+
+---
+
 A self-contained, adversarial proxy mesh. Farms its own proxy pool, scores and filters by tier (Dead/Bronze/Silver/Gold/Platinum), then builds multi-hop AES-256-GCM encrypted relay chains — no third-party VPN subscription required.
 
 ---
