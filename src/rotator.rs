@@ -1,3 +1,9 @@
+//! # Spectre Rotator - Topology and Selection Intelligence
+//!
+//! This module handles the logic for building multi-hop proxy chains based on different
+//! operational modes. It implements weighted random selection, subnet diversity constraints,
+//! and deterministic key derivation from master secrets.
+
 use crate::types::{ChainHop, ChainTopology, CryptoHop, Proxy, ProxyTier, RotationDecision};
 use rand::prelude::*;
 use std::time::{SystemTime, UNIX_EPOCH};

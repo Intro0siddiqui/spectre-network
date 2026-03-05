@@ -57,7 +57,8 @@ func NewCryptoSession(hops []CryptoHop) (*CryptoSession, error) {
 	return s, nil
 }
 
-// encryptedPipe pumps data between client and server with multi-layered AES-GCM encryption.
+// encryptedPipeGarlic pumps data between client and server with multi-layered AES-GCM encryption.
+// It implements Garlic features: random padding, jitter, and chaffing (dummy packets).
 func encryptedPipeGarlic(client, serverOut, serverIn net.Conn, cryptoHops []CryptoHop, garlic bool, obfuscation *ObfuscationConfig) error {
 	session, err := NewCryptoSession(cryptoHops)
 	if err != nil {
@@ -690,6 +691,7 @@ func parseJA3(ja3 string) (*utls.ClientHelloSpec, error) {
 }
 
 // handshakeProxy performs the protocol-specific handshake (SOCKS5 or HTTP CONNECT).
+// If MimicConfig is provided, it wraps the connection in a TLS/QUIC mimicry layer using utls.
 func handshakeProxy(conn net.Conn, hop ChainHop, target string, mimic *MimicConfig) error {
 	// Set deadline for the whole handshake
 	conn.SetDeadline(time.Now().Add(10 * time.Second))

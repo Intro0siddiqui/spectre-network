@@ -4,12 +4,25 @@ package main
 #cgo LDFLAGS: -L./target/release -lrotator_rs -ldl -lm -lpthread
 #include <stdlib.h>
 
+// run_polish_c: Scores and tiers proxies based on weighted metrics.
 extern char* run_polish_c(const char* raw_json, const char* weights_json);
+
+// build_chain_decision_c: Selects proxies and generates a multi-hop chain with encryption keys.
 extern char* build_chain_decision_c(const char* mode, const char* dns_json, const char* non_dns_json, const char* combined_json);
+
+// build_chain_topology_c: Same as above but returns only network info (no keys).
 extern char* build_chain_topology_c(const char* mode, const char* dns_json, const char* non_dns_json, const char* combined_json);
+
+// derive_keys_from_secret_c: Derives per-hop AES keys from a master secret.
 extern char* derive_keys_from_secret_c(const char* master_secret, const char* chain_id, int num_hops);
+
+// encrypt_with_counter_c: Single-layer AES-256-GCM encryption.
 extern unsigned char* encrypt_with_counter_c(const char* key_hex, const char* nonce_hex, unsigned long long counter, const unsigned char* plaintext, size_t plaintext_len, size_t* out_len);
+
+// decrypt_with_counter_c: Single-layer AES-256-GCM decryption.
 extern unsigned char* decrypt_with_counter_c(const char* key_hex, const char* nonce_hex, unsigned long long counter, const unsigned char* ciphertext, size_t ciphertext_len, size_t* out_len);
+
+// FFI Cleanup helpers
 extern void free_byte_array(unsigned char* ptr, size_t len);
 extern void free_c_string(char* s);
 */
@@ -43,6 +56,7 @@ const (
 func col(c, s string) string { return c + s + reset }
 
 // ── Data types ────────────────────────────────────────────────────────────────
+// Proxy represents a single proxy candidate with its metrics.
 type Proxy struct {
 	IP           string  `json:"ip,omitempty"`
 	Port         uint16  `json:"port,omitempty"`
@@ -51,13 +65,14 @@ type Proxy struct {
 	Country      string  `json:"country,omitempty"`
 	Anonymity    string  `json:"anonymity,omitempty"`
 	Score        float64 `json:"score,omitempty"`
-	Tier         string  `json:"tier"` // Assigned by Rust polish - do not omit to preserve tier data across FFI
+	Tier         string  `json:"tier"` // Assigned by Rust polish - preserved to identify quality levels (Platinum, Gold, etc.)
 	FailCount    uint32  `json:"fail_count"`
 	LastVerified uint64  `json:"last_verified"`
 	Alive        bool    `json:"alive"`
 	SourceType   string  `json:"source_type"` // "standard" or "premium"
 }
 
+// ScoringWeights defines the priority of various proxy attributes during scoring.
 type ScoringWeights struct {
 	Latency   float64 `json:"latency"`
 	Anonymity float64 `json:"anonymity"`
@@ -92,11 +107,13 @@ type SignatureConfig struct {
 	Profiles map[string]SignatureProfile `json:"profiles" yaml:"profiles"`
 }
 
+// MimicConfig defines how the tunnel should disguise its handshakes.
 type MimicConfig struct {
 	Protocol    string `json:"protocol" yaml:"protocol"` // "https", "quic", "ssh"
-	Fingerprint string `json:"fingerprint" yaml:"fingerprint"`
+	Fingerprint string `json:"fingerprint" yaml:"fingerprint"` // "chrome", "firefox", "edge", etc.
 }
 
+// ChainHop is a single link in the multi-hop proxy chain.
 type ChainHop struct {
 	IP          string             `json:"ip"`
 	Port        uint16             `json:"port"`
@@ -123,6 +140,7 @@ type CryptoHop struct {
 	NonceHex string `json:"nonce_hex"`
 }
 
+// RotationDecision contains the complete blueprint for a proxy chain session.
 type RotationDecision struct {
 	Mode       string      `json:"mode"`
 	Timestamp  uint64      `json:"timestamp"`
@@ -131,7 +149,7 @@ type RotationDecision struct {
 	AvgLatency float64     `json:"avg_latency"`
 	MinScore   float64     `json:"min_score"`
 	MaxScore   float64     `json:"max_score"`
-	Encryption []CryptoHop `json:"encryption"`
+	Encryption []CryptoHop `json:"encryption"` // Contains AES-256-GCM keys; kept in memory only.
 	Garlic     bool        `json:"garlic"`
 }
 

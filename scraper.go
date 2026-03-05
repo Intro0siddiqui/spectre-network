@@ -58,6 +58,8 @@ func parseIPPort(line string, ptype string) *Proxy {
 	return &Proxy{IP: ip, Port: uint16(port), Proto: ptype}
 }
 
+// scrapeProxyScrape fetches proxies from the ProxyScrape API.
+// Reliable source for HTTP/SOCKS5 proxies.
 func scrapeProxyScrape(ctx context.Context, protocol string, limit int, ch chan<- []Proxy) {
 	urlStr := fmt.Sprintf("https://api.proxyscrape.com/v4/free-proxy-list/get?request=getproxies&protocol=%s&timeout=10000&country=all&ssl=all&anonymity=all&simplified=true", protocol)
 	body, err := fetchBody(ctx, urlStr)
@@ -80,6 +82,8 @@ func scrapeProxyScrape(ctx context.Context, protocol string, limit int, ch chan<
 	ch <- proxies
 }
 
+// scrapeGitHubProxyLists fetches proxies from community-maintained GitHub repositories.
+// Sources include TheSpeedX, monosans, and clarketm.
 func scrapeGitHubProxyLists(ctx context.Context, source string, limit int, ch chan<- []Proxy) {
 	var urls map[string]string
 	switch source {
@@ -222,6 +226,8 @@ func scrapeProxifly(ctx context.Context, limit int, ch chan<- []Proxy) {
 	ch <- proxies
 }
 
+// scrapeGeoNodeAPI fetches proxies from the GeoNode API.
+// Provides detailed information including country and anonymity level.
 func scrapeGeoNodeAPI(ctx context.Context, protocol string, limit int, ch chan<- []Proxy) {
 	urlStr := fmt.Sprintf("https://proxylist.geonode.com/api/proxy-list?limit=%d&page=1&sort_by=lastChecked&sort_type=desc&protocols=%s", limit, protocol)
 	body, err := fetchBody(ctx, urlStr)
@@ -256,6 +262,8 @@ func scrapeGeoNodeAPI(ctx context.Context, protocol string, limit int, ch chan<-
 	ch <- proxies
 }
 
+// scrapeFreeProxyList scrapes from free-proxy-list.net using HTML parsing.
+// Primarily used for HTTP proxies.
 func scrapeFreeProxyList(ctx context.Context, limit int, ch chan<- []Proxy) {
 	c := colly.NewCollector(colly.UserAgent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"))
 	proxies := []Proxy{}

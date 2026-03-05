@@ -33,7 +33,8 @@ func internalVerifyProxy(p *Proxy, timeout time.Duration) {
 	if err != nil {
 		p.Alive = false
 		p.FailCount++
-		// Penalize score on failure: score * 0.7
+		// Penalize score on failure: Reduce score by 30% on each failed attempt.
+		// Proxies with FailCount >= MaxFailCount are pruned from the pool.
 		p.Score = math.Max(p.Score*0.7, 0.0)
 		return
 	}
@@ -43,13 +44,14 @@ func internalVerifyProxy(p *Proxy, timeout time.Duration) {
 	p.FailCount = 0
 	
 	// Update latency with recent measurement (weighted average to smooth: 0.6 old + 0.4 new)
+	// This prevents a single outlier measurement from radically changing the proxy's rank.
 	if p.Latency > 0 {
 		p.Latency = p.Latency*0.6 + latency*0.4
 	} else {
 		p.Latency = latency
 	}
 	
-	// Slight score boost for surviving proxies: (score * 0.95 + 0.05)
+	// Slight score boost for surviving proxies: Incremental improvement for stable proxies.
 	p.Score = math.Min(p.Score*0.95+0.05, 1.0)
 }
 

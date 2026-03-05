@@ -1,3 +1,15 @@
+//! # Spectre Network - Rust Core Engine
+//!
+//! This crate provides the high-performance system processing and cryptographic primitives
+//! for the Spectre Network adversarial proxy mesh. It is designed to be strictly isolated
+//! from the network, receiving all data through a secure FFI boundary from the Go orchestrator.
+//!
+//! ## Core Responsibilities:
+//! - **Cryptography:** Multi-layered AES-256-GCM encryption/decryption for multi-hop chains.
+//! - **Scoring:** Weighted proxy quality assessment and tier classification.
+//! - **Topology:** Deterministic and randomized proxy chain generation.
+//! - **FFI Bridge:** Safe, panic-resistant C-compatible interface for Go integration.
+
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
 
 #[cfg(feature = "python")]

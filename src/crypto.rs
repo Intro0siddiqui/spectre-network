@@ -1,3 +1,10 @@
+//! # Spectre Cryptography - Multi-Layered AES-GCM primitives
+//!
+//! This module implements high-performance AES-256-GCM encryption and decryption
+//! primitives. It supports single-layer encryption as well as multi-layered
+//! (onion) encryption/decryption for multi-hop circuits. Nonce derivation is
+//! counter-based to prevent reuse vulnerabilities.
+
 /// Per-hop AES-256-GCM encryption/decryption.
 ///
 /// Every outbound payload is encrypted with the exit hop's key before entering
