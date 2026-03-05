@@ -1,8 +1,0 @@
-{
-  "track_id": "ghost_obfuscation_20260228",
-  "type": "feature",
-  "status": "new",
-  "created_at": "2026-02-28T04:20:00Z",
-  "updated_at": "2026-02-28T04:20:00Z",
-  "description": "Phase 1: Ghost - Traffic Obfuscation. Implementation of Traffic Shaping (Chaffing), Packet Padding, and Protocol Morphing (obfs4)."
-}
