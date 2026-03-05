@@ -1,9 +1,9 @@
 # Implementation Plan: Phase 4: Nexus - WireGuard VPN Integration
 
 **Phase 1: WireGuard Core & Configuration (Go)**
-- [ ] **Task: Research and Integrate `wireguard-go` & `netstack`**
-    - [ ] Add `golang.zx2c4.com/wireguard` and `golang.zx2c4.com/wireguard/tun/netstack` to `go.mod` (Go)
-    - [ ] Create `vpn_manager.go` to handle the user-space WireGuard interface (Go)
+- [x] **Task: Research and Integrate `wireguard-go` & `netstack`** (e7e106d)
+    - [x] Add `golang.zx2c4.com/wireguard` and `golang.zx2c4.com/wireguard/tun/netstack` to `go.mod` (Go)
+    - [x] Create `vpn_manager.go` to handle the user-space WireGuard interface (Go)
 - [ ] **Task: Implement Config Parser**
     - [ ] Add logic to parse standard WireGuard `.conf` files (PrivateKey, Endpoint, etc.) (Go)
     - [ ] Extend `orchestrator.go` with `--vpn-config` and `--vpn-position` flags (Go)
