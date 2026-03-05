@@ -12,8 +12,8 @@
 - [x] Task: Conductor - User Manual Verification 'Phase 2: Technical Documentation Updates' (Protocol in workflow.md)
 
 
-## Phase 3: In-Code Documentation & Final Review
+## Phase 3: In-Code Documentation & Final Review [checkpoint: 5e42e0c]
 - [x] Task: Review and update comments in key Go source files (`orchestrator.go`, `scraper.go`, `verifier.go`, `tunnel.go`).
 - [x] Task: Review and update comments in key Rust source files (`src/lib.rs`, `src/rotator.rs`, `src/crypto.rs`).
 - [x] Task: Perform a final consistency and clarity check across all updated documentation.
-- [ ] Task: Conductor - User Manual Verification 'Phase 3: In-Code Documentation & Final Review' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Phase 3: In-Code Documentation & Final Review' (Protocol in workflow.md)
