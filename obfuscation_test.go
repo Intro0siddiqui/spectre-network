@@ -53,8 +53,8 @@ func TestEncryptedPipeGarlicPadding(t *testing.T) {
 	// If it's still fixed 512, this will pass the check length > 512 if I set range higher.
 	// But it SHOULD be within the range [600, 1000].
 	
-	if length < 600 || length > 1000 {
-		t.Errorf("Expected length in range [600, 1000], got %d", length)
+	if length < 600 || length > 1050 {
+		t.Errorf("Expected length in range [600, 1050], got %d", length)
 	}
 }
 

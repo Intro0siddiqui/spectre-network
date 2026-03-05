@@ -41,7 +41,7 @@ func TestParseMimicArgs(t *testing.T) {
 	
 	// Since parseRunArgs is already defined, I'll need to update it.
 	// For now, this test will fail to compile until I update the orchestrator.
-	_, _, _, _, _, mimic := parseRunArgs(args, "phantom", 500, "all")
+	_, _, _, _, _, mimic, _, _ := parseRunArgs(args, "phantom", 500, "all")
 	
 	if mimic == nil {
 		t.Fatal("Expected mimic config, got nil")
