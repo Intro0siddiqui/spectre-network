@@ -10,9 +10,9 @@
 - [x] **Task: Conductor - User Manual Verification 'Phase 1: WireGuard Core & Configuration' (Protocol in workflow.md)**
 
 **Phase 2: Handshake & Tunneling (Go)**
-- [ ] **Task: Implement User-space Handshake**
-    - [ ] **Write Tests (Red Phase):** Create unit tests in `nexus_test.go` to verify WireGuard configuration parsing and key handling (Go)
-    - [ ] **Implement (Green Phase):** Integrate the `wireguard-go` client to establish a tunnel to a specified endpoint (Go)
+- [x] **Task: Implement User-space Handshake** (9a334fc)
+    - [x] **Write Tests (Red Phase):** Create unit tests in `nexus_test.go` to verify WireGuard configuration parsing and key handling (Go)
+    - [x] **Implement (Green Phase):** Integrate the `wireguard-go` client to establish a tunnel to a specified endpoint (Go)
     - [ ] **Refactor:** Ensure the VPN connection is managed as a reusable `net.Conn` or `net.Dialer` (Go)
 - [ ] **Task: Position-Aware Circuit Integration**
     - [ ] **Write Tests (Red Phase):** Create tests verifying that a circuit can be established through a VPN dialer (Go)
