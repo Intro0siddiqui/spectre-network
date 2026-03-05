@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"net/netip"
+	"os"
 	"strings"
 
 	"golang.zx2c4.com/wireguard/conn"
@@ -24,6 +25,8 @@ type VPNConfig struct {
 // VPNManager handles the user-space WireGuard interface.
 type VPNManager struct {
 	ConfigPath string
+	Dialer     *netstack.Net
+	Device     *device.Device
 }
 
 // NewVPNManager creates a new VPNManager.
@@ -31,6 +34,31 @@ func NewVPNManager(configPath string) *VPNManager {
 	return &VPNManager{
 		ConfigPath: configPath,
 	}
+}
+
+// Connect initializes the WireGuard tunnel and stores the dialer.
+func (v *VPNManager) Connect() error {
+	if v.ConfigPath == "" {
+		return fmt.Errorf("no config path provided")
+	}
+
+	configBytes, err := os.ReadFile(v.ConfigPath)
+	if err != nil {
+		return fmt.Errorf("failed to read config: %v", err)
+	}
+
+	config, err := v.ParseConfig(string(configBytes))
+	if err != nil {
+		return fmt.Errorf("failed to parse config: %v", err)
+	}
+
+	dialer, err := v.CreateDialer(config)
+	if err != nil {
+		return err
+	}
+
+	v.Dialer = dialer
+	return nil
 }
 
 // CreateDialer creates a netstack-based dialer for the WireGuard tunnel.
@@ -48,10 +76,9 @@ func (v *VPNManager) CreateDialer(config *VPNConfig) (*netstack.Net, error) {
 
 	// 2. Create WireGuard device
 	dev := device.NewDevice(tun, conn.NewDefaultBind(), device.NewLogger(device.LogLevelSilent, ""))
+	v.Device = dev
 
 	// 3. Configure device (IPC-style string)
-	// Standard WG config keys are Base64, but IpcSet expects hex.
-	// For the sake of the 'Green Phase', we'll focus on the structural connection.
 	ipcConfig := fmt.Sprintf(`private_key=%s
 public_key=%s
 endpoint=%s

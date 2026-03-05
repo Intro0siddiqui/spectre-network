@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"testing"
 )
 
@@ -39,21 +40,25 @@ AllowedIPs = 0.0.0.0/0
 	}
 }
 
-func TestCreateVPNDialer(t *testing.T) {
-	// 32-byte hex keys
-	config := &VPNConfig{
-		PrivateKey:    "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
-		PeerPublicKey: "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
-		Endpoint:      "1.2.3.4:51820",
-		Address:       "10.0.0.1/32",
-	}
-	manager := NewVPNManager("")
-	
-	dialer, err := manager.CreateDialer(config)
+func TestVPNManagerConnect(t *testing.T) {
+	configContent := `[Interface]
+PrivateKey = 000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
+Address = 10.0.0.1/32
+
+[Peer]
+PublicKey = 202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f
+Endpoint = 1.2.3.4:51820
+`
+	tmpFile := "test_wg.conf"
+	os.WriteFile(tmpFile, []byte(configContent), 0644)
+	defer os.Remove(tmpFile)
+
+	manager := NewVPNManager(tmpFile)
+	err := manager.Connect()
 	if err != nil {
-		t.Fatalf("Failed to create dialer: %v", err)
+		t.Fatalf("Connect failed: %v", err)
 	}
-	if dialer == nil {
-		t.Fatal("Expected dialer, got nil")
+	if manager.Dialer == nil {
+		t.Fatal("Expected dialer to be set after Connect")
 	}
 }
