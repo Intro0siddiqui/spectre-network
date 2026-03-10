@@ -114,18 +114,35 @@ type Proxy struct {
 ---
 
 ### 6. Documentation (`FINAL_SUMMARY.md`)
+## Changes Made
 
-**Created:** Comprehensive documentation of the tier system, mode filtering, and usage examples.
+### 1. Proxy Tier System (`src/types.rs`)
+...
+
+---
+
+### 7. Nexus Phase 4: WireGuard VPN Integration (`vpn_manager.go`)
+
+**Added:**
+- Native WireGuard protocol support using `wireguard-go`
+- User-space network stack (`netstack`) for rootless VPN dialing
+- Standard `.conf` file parsing for existing VPN accounts
+- Position-aware circuit integration (can be `entry`, `intermediate`, or `exit` hop)
+- Basic failover logic to standard proxies on VPN failure
+
+```go
+// VPNManager handles the user-space WireGuard interface.
+type VPNManager struct {
+    ConfigPath string
+    Dialer     *netstack.Net
+    Device     *device.Device
+}
+```
 
 ---
 
 ## Test Results
-
-### Before Fix
-- Modes failed intermittently (50-90% failure rate)
-- Error: "build_chain_decision returned None" despite 200+ proxies
-- Root cause: deserialization failures on empty tier strings
-
+...
 ### After Fix
 | Mode | Run 1 | Run 2 | Run 3 | Run 4 | Run 5 | Success Rate |
 |------|-------|-------|-------|-------|-------|--------------|
@@ -133,6 +150,13 @@ type Proxy struct {
 | stealth | ✓ | ✓ | ✓ | ✓ | ✓ | 5/5 (100%) |
 | high | ✓ | ✓ | ✓ | ✓ | ✓ | 5/5 (100%) |
 | phantom | ✓ | ✓ | ✓ | ✓ | ✓ | 5/5 (100%) |
+
+**VPN Integration Tests:**
+- ✅ VPN Manager Initialization
+- ✅ WireGuard Config Parsing
+- ✅ Netstack Dialer Connectivity
+- ✅ Circuit Integration (Entry position)
+- ✅ Failover to standard proxies
 
 ### Rust Unit Tests
 ```
@@ -149,12 +173,13 @@ test result: ok. 76 passed; 0 failed
 | `src/types.rs` | +50 | ProxyTier enum, deserializer |
 | `src/polish.rs` | +3 | Tier assignment |
 | `src/rotator.rs` | +80 | Mode filtering with fallbacks |
-| `orchestrator.go` | +1 | Tier field in Proxy struct |
+| `orchestrator.go` | +100 | Tier field, VPN integration flags, VPN manager init |
 | `scraper.go` | +50 | Updated proxy sources |
+| `vpn_manager.go` | +110 | NEW: User-space WireGuard implementation |
+| `tunnel.go` | +60 | VPN-aware circuit building and handshakes |
 
-**Total:** ~184 lines added/modified
+**Total:** ~453 lines added/modified
 
----
 
 ## Usage Examples
 
