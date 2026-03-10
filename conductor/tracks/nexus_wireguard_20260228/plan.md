@@ -20,7 +20,7 @@
 - [x] **Task: Conductor - User Manual Verification 'Phase 2: Handshake & Tunneling' (Skipped)**
 
 **Phase 3: Robustness & Final Integration (Go/Rust)**
-- [ ] **Task: Failover & Health Monitoring**
+- [~] **Task: Failover & Health Monitoring**
     - [ ] **Write Tests (Red Phase):** Create tests for fallback behavior when the VPN endpoint is unreachable (Go)
     - [ ] **Implement (Green Phase):** Add logic to detect VPN tunnel failure and either attempt reconnect or fall back to standard proxies (Go)
 - [ ] **Task: Documentation & Final Polish**

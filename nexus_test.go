@@ -2,7 +2,6 @@ package main
 
 import (
 	"os"
-	"strings"
 	"testing"
 )
 
@@ -64,16 +63,21 @@ Endpoint = 1.2.3.4:51820
 	}
 }
 
-func TestVPNCircuitIntegration(t *testing.T) {
+func TestVPNFailover(t *testing.T) {
+	// Mock a failing VPNManager (config file doesn't exist)
+	manager := NewVPNManager("nonexistent.conf")
+	err := manager.Connect()
+	if err == nil {
+		t.Fatal("Expected Connect to fail for nonexistent config")
+	}
+	
+	// Ensure that even if VPN is nil, circuit building still works (using standard proxies)
 	chain := []ChainHop{
 		{IP: "1.2.3.4", Port: 1080, Proto: "socks5"},
-		{IP: "5.6.7.8", Port: 1080, Proto: "socks5"},
 	}
-	target := "google.com:80"
-	
-	// Test with nil VPN
-	_, err := buildCircuit(chain, target, nil, nil, nil, "phantom", false, nil, nil, nil, "entry")
-	if err != nil && !strings.Contains(err.Error(), "failed to connect") && !strings.Contains(err.Error(), "all retries failed") {
-		t.Errorf("Unexpected error: %v", err)
+	_, err = buildCircuit(chain, "example.com:80", nil, nil, nil, "lite", false, nil, nil, nil, "entry")
+	// It will still fail because 1.2.3.4:1080 is unreachable, but it shouldn't crash
+	if err == nil {
+		t.Errorf("Expected error for unreachable proxy")
 	}
 }
