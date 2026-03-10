@@ -78,6 +78,8 @@ spectre <command> [flags]
 | --padding-range | `MIN-MAX` (bytes) | `512-1024` |
 | `--mimic-protocol` | `https` \| `quic` \| `ssh` | `off` |
 | `--mimic-fingerprint` | `chrome` \| `firefox` \| `edge` \| `youtube` | `chrome` |
+| `--vpn-config` | path to `.conf` | `""` |
+| `--vpn-position` | `entry` \| `intermediate` \| `exit` \| `any` | `any` |
 
 ### Examples
 
@@ -94,6 +96,9 @@ spectre run --mode lite --obfuscation-mode obfs4 --node-id <ID> --public-key <KE
 # Protocol Mimicry — Disguise traffic as a Chrome TLS 1.3 handshake or QUIC stream
 spectre run --mode phantom --mimic-protocol https --mimic-fingerprint chrome
 spectre run --mode high --mimic-protocol quic
+
+# Nexus Phase 4: WireGuard VPN Integration — Blend a native VPN into the mesh
+spectre run --mode high --vpn-config /path/to/wg0.conf --vpn-position entry
 ```
 
 ---
@@ -129,6 +134,7 @@ Tier assignment is automatic based on weighted scoring (latency, anonymity, coun
 - ✅ **Traffic shaping (Garlic Mode)** — randomized packet padding and jitter injection to defeat timing correlation.
 - ✅ **Protocol morphing (obfs4)** — supports pluggable transports to bypass Deep Packet Inspection.
 - ✅ **Protocol signature mimicry** — disguise handshakes as TLS 1.3 (Chrome/Firefox JA3) or QUIC streams to evade DPI.
+- ✅ **Nexus Phase 4: WireGuard Integration** — supports blending professional/commercial VPNs as hops in the mesh via user-space WireGuard.
 - ✅ DNS routed through chain in `high`/`phantom` modes (no local DNS leaks)
 - ✅ Proxy pool persistence with live health re-verification
 - ✅ Randomised chain assembly on every rotation — no fixed exit IP

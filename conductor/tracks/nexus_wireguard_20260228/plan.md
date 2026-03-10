@@ -20,10 +20,10 @@
 - [x] **Task: Conductor - User Manual Verification 'Phase 2: Handshake & Tunneling' (Skipped)**
 
 **Phase 3: Robustness & Final Integration (Go/Rust)**
-- [~] **Task: Failover & Health Monitoring**
-    - [ ] **Write Tests (Red Phase):** Create tests for fallback behavior when the VPN endpoint is unreachable (Go)
-    - [ ] **Implement (Green Phase):** Add logic to detect VPN tunnel failure and either attempt reconnect or fall back to standard proxies (Go)
-- [ ] **Task: Documentation & Final Polish**
-    - [ ] Update `README.md` and `ROADMAP.md` with Nexus Phase 4 details (Docs)
-    - [ ] Final security review of the VPN credential handling (Audit)
+- [x] **Task: Failover & Health Monitoring** (9da68a8)
+    - [x] **Write Tests (Red Phase):** Create tests for fallback behavior when the VPN endpoint is unreachable (Go)
+    - [x] **Implement (Green Phase):** Add logic to detect VPN tunnel failure and either attempt reconnect or fall back to standard proxies (Go)
+- [x] **Task: Documentation & Final Polish** (df6e3b2)
+    - [x] Update `README.md` and `ROADMAP.md` with Nexus Phase 4 details (Docs)
+    - [x] Final security review of the VPN credential handling (Audit)
 - [ ] **Task: Conductor - User Manual Verification 'Phase 3: Integration & Final Polish' (Protocol in workflow.md)**

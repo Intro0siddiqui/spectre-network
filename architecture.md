@@ -34,6 +34,12 @@ The **CLI Entrypoint and Lifecycle Manager**.
 - It manages file paths and state (saving `last_chain.json`, `proxies_combined.json`).
 - It declares the `#cgo LDFLAGS` header that instructs the Go compiler to statically wrap the `librotator_rs.a` Rust archive directly into the `spectre` executable.
 
+**`vpn_manager.go`**
+The **User-space VPN Integration Module**.
+- Implements the native WireGuard protocol using `wireguard-go`.
+- Manages a user-space network stack (`netstack`) to provide a `net.Dialer` for VPN connections.
+- Parses standard WireGuard `.conf` files to establish encrypted tunnels without requiring root privileges.
+
 **`scraper.go`**
 The **Concurrent Web Harvesting Module**. Spawns Goroutines to fetch proxies from 12+ sources concurrently using regex and HTML traversing.
 
@@ -79,18 +85,20 @@ The data scorer. Classifies proxies into tiers (Dead/Bronze/Silver/Gold/Platinum
 
 ## 3. Communication Workflow Summary (End-to-End)
 
-When the user runs: `./spectre run --mode phantom`
+When the user runs: `./spectre run --mode phantom --vpn-config wg0.conf`
 
 1. **Go (orchestrator.go)** initiates `internalRunScraper`.
-2. **Go (scraper.go)** concurrent workers fetch up to 10,000 proxies.
-3. **Go (verifier.go)** performs TCP reachability and latency tests on all candidates.
-4. **Go (orchestrator.go)** passes pre-validated proxy data to **Rust (run_polish_c)**.
-5. **Rust (src/polish.rs)** scores and tiers the proxies.
-6. **Rust (src/rotator.rs)** generates a 5-node circuit chain with random AES keys.
-7. **Go** saves the chain topology and confirms success.
+2. **Go (vpn_manager.go)** initializes the user-space WireGuard tunnel.
+3. **Go (scraper.go)** concurrent workers fetch up to 10,000 proxies.
+4. **Go (verifier.go)** performs TCP reachability and latency tests on all candidates.
+5. **Go (orchestrator.go)** passes pre-validated proxy data to **Rust (run_polish_c)**.
+6. **Rust (src/polish.rs)** scores and tiers the proxies.
+7. **Rust (src/rotator.rs)** generates a 5-node circuit chain with random AES keys.
+8. **Go** saves the chain topology and confirms success.
 
 When the user then runs `./spectre serve --mode phantom`:
 
 1. **Go (tunnel.go)** starts a SOCKS5 listener.
 2. For each client, **Go** builds a multi-hop circuit through the chosen chain.
-3. **Go** pumps data through an `encryptedPipe`, calling **Rust** FFI for per-packet AES-256-GCM encryption and decryption.
+3. If VPN is active, **Go (tunnel.go)** dials the first hop through the `netstack` dialer.
+4. **Go** pumps data through an `encryptedPipe`, calling **Rust** FFI for per-packet AES-256-GCM encryption and decryption.
