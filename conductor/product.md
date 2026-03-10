@@ -12,6 +12,7 @@ Spectre Network is a high-performance, adversarial proxy mesh designed for deep 
 1. **Domain Isolation**: Strict separation between the Go networking layer and the Rust system processing engine. Go handles 100% of network-facing logic (scraping, validation, SOCKS5 server), while Rust focuses exclusively on high-performance cryptography, scoring, and topology calculations.
 2. **Anonymity & Performance First**: A dual-focus approach ensuring that every multi-hop chain provides maximum anonymity (AES-256-GCM) while maintaining high-throughput and low-latency proxy selection.
 3. **Adversarial Resilience**: Built to resist Deep Packet Inspection (DPI), timing correlation, and traffic analysis through protocol mimicry (TLS 1.3/QUIC), multi-hop chaining, and deep proxy scoring.
+4. **Hybrid Mesh Integration**: Ability to blend professional VPN providers (WireGuard/OpenVPN) directly into the adversarial proxy mesh for improved performance and reliability.
 
 ## Target Audience
 - **Privacy Advocates**: Individuals requiring high-grade anonymity for communication and data isolation.
