@@ -13,7 +13,8 @@ A self-contained, adversarial proxy mesh. Farms its own proxy pool, scores and f
 | Layer | Language | Role |
 |---|---|---|
 | Orchestrator | Go | CLI orchestration, state management, file I/O |
-| Networking | Go | 100% of network I/O: Scraper, Verifier, SOCKS5 Server, Tunneling |
+| Networking | Go | 100% of network I/O: Scraper, Verifier, SOCKS5 Server |
+| VPN Manager | Go | User-space WireGuard tunnel (rootless netstack) |
 | Engine | Rust | System processing: Scored Tiering, Topology calculations, AES-256-GCM |
 | Audit | Go | Containerised adversarial leak testing (9-test suite) |
 
@@ -184,7 +185,7 @@ Grading: **A+** (9/9) → **A** (≥8/9) → **B** (≥7/9) → **C** (≥6/9) �
 
 ## Proxy Sources
 
-The Go scraper fans out concurrently across 9 active sources:
+The Go scraper fans out concurrently across 9 active sources (using a 12-worker pool):
 
 **Working Sources:**
 - ProxyScrape API (HTTP)
