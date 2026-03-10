@@ -347,6 +347,19 @@ func main() {
 // Full pipeline: scrape → polish → rotate → print chain
 func cmdRun(workspace, mode string, limit int, protocol string, weights ScoringWeights, garlic bool, obfuscation *ObfuscationConfig, mimic *MimicConfig, vpnConfig, vpnPos string) {
 	printBanner()
+
+	var vpn *VPNManager
+	if vpnConfig != "" {
+		fmt.Printf("%s Initializing VPN connection from %s...\n", col(cyan, "◈"), vpnConfig)
+		vpn = NewVPNManager(vpnConfig)
+		if err := vpn.Connect(); err != nil {
+			fmt.Printf("%s VPN connection failed: %v (falling back to standard proxies)\n", col(yellow, "⚠"), err)
+			vpn = nil
+		} else {
+			fmt.Printf("%s VPN tunnel established successfully\n", col(green, "✓"))
+		}
+	}
+
 	fmt.Printf("%s Scraping fresh proxies (limit=%d, protocol=%s)...\n", col(cyan, "◈"), limit, protocol)
 	raw, err := runScraper(workspace, limit, protocol)
 	if err != nil {
@@ -373,6 +386,19 @@ func cmdRun(workspace, mode string, limit int, protocol string, weights ScoringW
 // Re-verify stored pool → fill delta if needed → rotate
 func cmdRefresh(workspace, mode string, limit int, protocol string, weights ScoringWeights, garlic bool, obfuscation *ObfuscationConfig, mimic *MimicConfig, vpnConfig, vpnPos string) {
 	printBanner()
+
+	var vpn *VPNManager
+	if vpnConfig != "" {
+		fmt.Printf("%s Initializing VPN connection from %s...\n", col(cyan, "◈"), vpnConfig)
+		vpn = NewVPNManager(vpnConfig)
+		if err := vpn.Connect(); err != nil {
+			fmt.Printf("%s VPN connection failed: %v (falling back to standard proxies)\n", col(yellow, "⚠"), err)
+			vpn = nil
+		} else {
+			fmt.Printf("%s VPN tunnel established successfully\n", col(green, "✓"))
+		}
+	}
+
 	combinedPath := filepath.Join(workspace, "proxies_combined.json")
 	if _, err := os.Stat(combinedPath); os.IsNotExist(err) {
 		fmt.Printf("%s No stored pool found — running full scrape instead.\n", col(yellow, "⚠"))
@@ -412,6 +438,19 @@ func runVerify(workspace string, proxies []Proxy, weights ScoringWeights) (dns, 
 // Use existing pool on disk to build a new chain
 func cmdRotate(workspace, mode string, garlic bool, obfuscation *ObfuscationConfig, mimic *MimicConfig, vpnConfig, vpnPos string) {
 	printBanner()
+
+	var vpn *VPNManager
+	if vpnConfig != "" {
+		fmt.Printf("%s Initializing VPN connection from %s...\n", col(cyan, "◈"), vpnConfig)
+		vpn = NewVPNManager(vpnConfig)
+		if err := vpn.Connect(); err != nil {
+			fmt.Printf("%s VPN connection failed: %v (falling back to standard proxies)\n", col(yellow, "⚠"), err)
+			vpn = nil
+		} else {
+			fmt.Printf("%s VPN tunnel established successfully\n", col(green, "✓"))
+		}
+	}
+
 	dns, nonDNS, combined := loadPools(workspace)
 	if len(combined) == 0 {
 		log.Fatalf("%s No proxy pool on disk. Run `spectre run` first.", col(red, "✗"))
@@ -426,6 +465,19 @@ func cmdRotate(workspace, mode string, garlic bool, obfuscation *ObfuscationConf
 // spectre serve [--mode M] [--port P]
 func cmdServe(workspace, mode string, port int, garlic bool, obfuscation *ObfuscationConfig, mimic *MimicConfig, vpnConfig, vpnPos string) {
 	printBanner()
+
+	var vpn *VPNManager
+	if vpnConfig != "" {
+		fmt.Printf("%s Initializing VPN connection from %s...\n", col(cyan, "◈"), vpnConfig)
+		vpn = NewVPNManager(vpnConfig)
+		if err := vpn.Connect(); err != nil {
+			fmt.Printf("%s VPN connection failed: %v (falling back to standard proxies)\n", col(yellow, "⚠"), err)
+			vpn = nil
+		} else {
+			fmt.Printf("%s VPN tunnel established successfully\n", col(green, "✓"))
+		}
+	}
+
 	dns, nonDNS, combined := loadPools(workspace)
 	if len(combined) == 0 {
 		log.Fatalf("%s No proxy pool on disk. Run `spectre run` first.", col(red, "✗"))
@@ -438,7 +490,7 @@ func cmdServe(workspace, mode string, port int, garlic bool, obfuscation *Obfusc
 
 	fmt.Printf("%s Starting SOCKS5 server on port %d with live rotation...\n", col(green, "✓"), port)
 
-	if err := startSOCKS5Server(port, *decision, dns, nonDNS, combined, obfuscation, mimic); err != nil {
+	if err := startSOCKS5Server(port, *decision, dns, nonDNS, combined, obfuscation, mimic, vpn, vpnPos); err != nil {
 		log.Fatalf("%s Server failed: %v", col(red, "✗"), err)
 	}
 }

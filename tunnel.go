@@ -365,7 +365,7 @@ func decryptWithCounter(keyHex, nonceHex string, counter uint64, ciphertext []by
 }
 
 // startSOCKS5Server starts the SOCKS5 server with live rotation.
-func startSOCKS5Server(port int, initialDecision RotationDecision, dnsPool, nonDNSPool, combinedPool []Proxy, obfuscation *ObfuscationConfig, mimic *MimicConfig) error {
+func startSOCKS5Server(port int, initialDecision RotationDecision, dnsPool, nonDNSPool, combinedPool []Proxy, obfuscation *ObfuscationConfig, mimic *MimicConfig, vpn *VPNManager, vpnPos string) error {
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -409,16 +409,16 @@ func startSOCKS5Server(port int, initialDecision RotationDecision, dnsPool, nonD
 		d := currentDecision
 		mu.RUnlock()
 
-		go func(c net.Conn, d RotationDecision, obf *ObfuscationConfig, mim *MimicConfig) {
-			if err := handleSOCKS5Client(c, d, dnsPool, nonDNSPool, combinedPool, obf, mim); err != nil {
+		go func(c net.Conn, d RotationDecision, obf *ObfuscationConfig, mim *MimicConfig, v *VPNManager, vp string) {
+			if err := handleSOCKS5Client(c, d, dnsPool, nonDNSPool, combinedPool, obf, mim, v, vp); err != nil {
 				// Silently log or handle connection errors
 			}
-		}(client, d, obfuscation, mimic)
+		}(client, d, obfuscation, mimic, vpn, vpnPos)
 	}
 }
 
 // handleSOCKS5Client handles the initial SOCKS5 handshake and request parsing.
-func handleSOCKS5Client(conn net.Conn, decision RotationDecision, dnsPool, nonDNSPool, combinedPool []Proxy, obfuscation *ObfuscationConfig, mimic *MimicConfig) error {
+func handleSOCKS5Client(conn net.Conn, decision RotationDecision, dnsPool, nonDNSPool, combinedPool []Proxy, obfuscation *ObfuscationConfig, mimic *MimicConfig, vpn *VPNManager, vpnPos string) error {
 	defer conn.Close()
 
 	// 1. SOCKS5 Handshake
@@ -509,7 +509,7 @@ func handleSOCKS5Client(conn net.Conn, decision RotationDecision, dnsPool, nonDN
 	fmt.Printf("%s Target requested: %s\n", col(cyan, "◈"), targetAddr)
 
 	// 3. Build circuit through the chain
-	server, err := buildCircuit(decision.Chain, targetAddr, dnsPool, nonDNSPool, combinedPool, decision.Mode, decision.Garlic, obfuscation, mimic)
+	server, err := buildCircuit(decision.Chain, targetAddr, dnsPool, nonDNSPool, combinedPool, decision.Mode, decision.Garlic, obfuscation, mimic, vpn, vpnPos)
 	if err != nil {
 		fmt.Printf("%s Failed to build circuit: %v\n", col(red, "✗"), err)
 		return fmt.Errorf("failed to build circuit: %v", err)
@@ -521,7 +521,7 @@ func handleSOCKS5Client(conn net.Conn, decision RotationDecision, dnsPool, nonDN
 	if decision.Garlic {
 		fmt.Printf("%s Garlic Mode: Building secondary inbound circuit...\n", col(cyan, "◈"))
 		// Attempt to build a second circuit for the inbound path
-		server2, err2 := buildCircuit(decision.Chain, targetAddr, dnsPool, nonDNSPool, combinedPool, decision.Mode, decision.Garlic, obfuscation, mimic)
+		server2, err2 := buildCircuit(decision.Chain, targetAddr, dnsPool, nonDNSPool, combinedPool, decision.Mode, decision.Garlic, obfuscation, mimic, vpn, vpnPos)
 		if err2 == nil {
 			defer server2.Close()
 			serverIn = server2
@@ -555,7 +555,7 @@ func handleSOCKS5Client(conn net.Conn, decision RotationDecision, dnsPool, nonDN
 }
 
 // buildCircuit builds a multi-hop proxy circuit with retries and live rotation.
-func buildCircuit(chain []ChainHop, target string, dnsPool, nonDNSPool, combinedPool []Proxy, mode string, garlic bool, obfuscation *ObfuscationConfig, mimic *MimicConfig) (net.Conn, error) {
+func buildCircuit(chain []ChainHop, target string, dnsPool, nonDNSPool, combinedPool []Proxy, mode string, garlic bool, obfuscation *ObfuscationConfig, mimic *MimicConfig, vpn *VPNManager, vpnPos string) (net.Conn, error) {
 	if len(chain) == 0 {
 		return nil, fmt.Errorf("empty proxy chain")
 	}
@@ -574,7 +574,7 @@ func buildCircuit(chain []ChainHop, target string, dnsPool, nonDNSPool, combined
 			}
 		}
 
-		conn, err := buildCircuitInternal(currentChain, target, mimic)
+		conn, err := buildCircuitInternal(currentChain, target, mimic, vpn, vpnPos)
 		if err == nil {
 			return conn, nil
 		}
@@ -587,13 +587,26 @@ func buildCircuit(chain []ChainHop, target string, dnsPool, nonDNSPool, combined
 	return nil, fmt.Errorf("all retries failed: %v", lastErr)
 }
 
-func buildCircuitInternal(chain []ChainHop, target string, mimic *MimicConfig) (net.Conn, error) {
+func buildCircuitInternal(chain []ChainHop, target string, mimic *MimicConfig, vpn *VPNManager, vpnPos string) (net.Conn, error) {
 	fmt.Printf("%s Building circuit through %d hops to %s\n", col(dim, "→"), len(chain), target)
+
+	// Determine if we should use the VPN for the entry hop
+	useVPN := vpn != nil && vpn.Dialer != nil && (vpnPos == "entry" || vpnPos == "any")
 
 	// Connect to first hop
 	first := chain[0]
 	addr := fmt.Sprintf("%s:%d", first.IP, first.Port)
-	conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
+	
+	var conn net.Conn
+	var err error
+	
+	if useVPN {
+		fmt.Printf("%s VPN Active: Dialing entry hop %s through WireGuard tunnel\n", col(green, "◈"), addr)
+		conn, err = vpn.Dialer.Dial("tcp", addr)
+	} else {
+		conn, err = net.DialTimeout("tcp", addr, 5*time.Second)
+	}
+	
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to first hop %s: %v", addr, err)
 	}
