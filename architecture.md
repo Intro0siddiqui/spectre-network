@@ -41,7 +41,7 @@ The **User-space VPN Integration Module**.
 - Parses standard WireGuard `.conf` files to establish encrypted tunnels without requiring root privileges.
 
 **`scraper.go`**
-The **Concurrent Web Harvesting Module**. Spawns Goroutines to fetch proxies from 12+ sources concurrently using regex and HTML traversing.
+The **Concurrent Web Harvesting Module**. Spawns Goroutines to fetch proxies from 9+ sources concurrently using regex and HTML traversing.
 
 **`verifier.go`**
 The **Go-native Health Check System**. Performs live TCP reachability tests, measures latency, and updates proxy metrics (FailCount, LastVerified). Prunes dead proxies from the pool.
