@@ -4,6 +4,8 @@ import (
 	"testing"
 )
 
+// TestValidateMode ensures that only supported operation modes (lite, stealth, high, phantom)
+// are accepted by the orchestrator.
 func TestValidateMode(t *testing.T) {
 	tests := []struct {
 		mode string
@@ -30,6 +32,7 @@ func TestValidateMode(t *testing.T) {
 	}
 }
 
+// TestValidateLimit verifies that the scraper limit is within the allowed bounds (1-10000).
 func TestValidateLimit(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -53,6 +56,7 @@ func TestValidateLimit(t *testing.T) {
 	}
 }
 
+// TestValidateProtocol checks that the specified proxy protocols are valid and supported.
 func TestValidateProtocol(t *testing.T) {
 	tests := []struct {
 		proto string
@@ -76,6 +80,8 @@ func TestValidateProtocol(t *testing.T) {
 	}
 }
 
+// TestSanitizeMode validates the normalization logic for mode strings,
+// including case-insensitivity and whitespace trimming.
 func TestSanitizeMode(t *testing.T) {
 	tests := []struct {
 		name      string
