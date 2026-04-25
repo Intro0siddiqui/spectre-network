@@ -677,8 +677,12 @@ func runScraper(workspace string, limit int, protocol string) ([]Proxy, error) {
 	}
 
 	data, err := json.MarshalIndent(proxies, "", "  ")
-	if err == nil {
-		_ = os.WriteFile(filepath.Join(workspace, "raw_proxies.json"), data, 0644)
+	if err != nil {
+		log.Printf("%s Error marshaling raw_proxies.json: %v\n", col(red, "✗"), err)
+	} else {
+		if err := os.WriteFile(filepath.Join(workspace, "raw_proxies.json"), data, 0644); err != nil {
+			log.Printf("%s Error saving raw_proxies.json: %v\n", col(red, "✗"), err)
+		}
 	}
 
 	return proxies, nil
@@ -781,7 +785,9 @@ func loadProxies(path string) []Proxy {
 		return nil
 	}
 	var p []Proxy
-	_ = json.Unmarshal(data, &p)
+	if err := json.Unmarshal(data, &p); err != nil {
+		fmt.Fprintf(os.Stderr, "%s Error unmarshaling proxies from %s: %v\n", col(red, "✗"), path, err)
+	}
 	return p
 }
 
@@ -814,8 +820,14 @@ func loadObfuscationConfig(path string) *ObfuscationConfig {
 }
 
 func saveJSON(path string, v interface{}) {
-	data, _ := json.MarshalIndent(v, "", "  ")
-	_ = os.WriteFile(path, data, 0644)
+	data, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s Error marshaling JSON for %s: %v\n", col(red, "✗"), path, err)
+		return
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		fmt.Fprintf(os.Stderr, "%s Error saving %s: %v\n", col(red, "✗"), path, err)
+	}
 }
 
 func loadPools(workspace string) (dns, nonDNS, combined []Proxy) {
