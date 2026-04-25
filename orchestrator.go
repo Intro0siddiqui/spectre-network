@@ -822,11 +822,11 @@ func loadObfuscationConfig(path string) *ObfuscationConfig {
 func saveJSON(path string, v interface{}) {
 	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
-		log.Printf("%s Error marshaling JSON for %s: %v\n", col(red, "✗"), path, err)
+		fmt.Fprintf(os.Stderr, "%s Error marshaling JSON for %s: %v\n", col(red, "✗"), path, err)
 		return
 	}
 	if err := os.WriteFile(path, data, 0644); err != nil {
-		log.Printf("%s Error saving %s: %v\n", col(red, "✗"), path, err)
+		fmt.Fprintf(os.Stderr, "%s Error saving %s: %v\n", col(red, "✗"), path, err)
 	}
 }
 
