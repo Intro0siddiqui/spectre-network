@@ -786,7 +786,7 @@ func loadProxies(path string) []Proxy {
 	}
 	var p []Proxy
 	if err := json.Unmarshal(data, &p); err != nil {
-		log.Printf("%s Error unmarshaling proxies from %s: %v\n", col(red, "✗"), path, err)
+		fmt.Fprintf(os.Stderr, "%s Error unmarshaling proxies from %s: %v\n", col(red, "✗"), path, err)
 	}
 	return p
 }
