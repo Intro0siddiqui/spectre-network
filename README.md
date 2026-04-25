@@ -43,6 +43,9 @@ cargo build --release
 
 # 2. Build the spectre binary (Go + Rust FFI, fully static)
 CGO_ENABLED=1 go build -ldflags="-s -w -extldflags '-static'" -o spectre .
+
+# 3. Build the spectre-audit probe (optional)
+cd security-audit && go build -o ../spectre-audit . && cd ..
 ```
 
 > **Note:** The `spectre` binary produced by the Go build is the primary entry-point.
@@ -154,12 +157,6 @@ Tier assignment is automatic based on weighted scoring (latency, anonymity, coun
 - ❌ **P2P proxy discovery** — still uses a centralised scraper. *(Phase 2 roadmap)*
 - ❌ **Browser Integration** — WebAssembly build for browser extensions. *(Phase 3 roadmap)*
 
-### Is the missing traffic shaping a problem?
-
-For **99% of use cases** (hiding from websites, ISPs, corporate surveillance, casual tracking) — no. The multi-hop chain with AES-GCM is more than sufficient.
-
-For a **targeted nation-state adversary** with infrastructure access to your ISP and the exit proxy simultaneously — yes, timing correlation is possible without traffic shaping. This is the same limitation Tor partially has and is a known hard problem.
-
 ---
 
 ## Security Audit
@@ -191,7 +188,7 @@ Grading: **A+** (9/9) → **A** (≥8/9) → **B** (≥7/9) → **C** (≥6/9) �
 
 ## Proxy Sources
 
-The Go scraper fans out concurrently across 10+ active sources (using a 100-worker validation pool):
+The Go scraper fans out concurrently across 9 active sources (using a 100-worker validation pool):
 
 **Working Sources:**
 - ProxyScrape API (HTTP + SOCKS5)
