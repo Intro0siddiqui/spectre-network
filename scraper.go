@@ -169,62 +169,6 @@ func scrapeHookzof(ctx context.Context, limit int, ch chan<- []Proxy) {
 	ch <- proxies
 }
 
-func scrapeIplocate(ctx context.Context, limit int, ch chan<- []Proxy) {
-	body, err := fetchBody(ctx, "https://raw.githubusercontent.com/iplocate/free-proxy-list/main/socks5.txt")
-	if err != nil {
-		ch <- nil
-		return
-	}
-	proxies := []Proxy{}
-	for _, l := range strings.Split(string(body), "\n") {
-		if p := parseIPPort(l, "socks5"); p != nil {
-			proxies = append(proxies, *p)
-		}
-		if len(proxies) >= limit {
-			break
-		}
-	}
-	fmt.Fprintf(os.Stderr, "Scraped %d from iplocate/free-proxy-list\n", len(proxies))
-	ch <- proxies
-}
-
-func scrapeKomutan(ctx context.Context, limit int, ch chan<- []Proxy) {
-	body, err := fetchBody(ctx, "https://raw.githubusercontent.com/komutan234/Proxy-List-Free/main/socks5.txt")
-	if err != nil {
-		ch <- nil
-		return
-	}
-	proxies := []Proxy{}
-	for _, l := range strings.Split(string(body), "\n") {
-		if p := parseIPPort(l, "socks5"); p != nil {
-			proxies = append(proxies, *p)
-		}
-		if len(proxies) >= limit {
-			break
-		}
-	}
-	fmt.Fprintf(os.Stderr, "Scraped %d from komutan234/Proxy-List-Free\n", len(proxies))
-	ch <- proxies
-}
-
-func scrapeProxifly(ctx context.Context, limit int, ch chan<- []Proxy) {
-	body, err := fetchBody(ctx, "https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/protocols/socks5/data.txt")
-	if err != nil {
-		ch <- nil
-		return
-	}
-	proxies := []Proxy{}
-	for _, l := range strings.Split(string(body), "\n") {
-		if p := parseIPPort(l, "socks5"); p != nil {
-			proxies = append(proxies, *p)
-		}
-		if len(proxies) >= limit {
-			break
-		}
-	}
-	fmt.Fprintf(os.Stderr, "Scraped %d from Proxifly\n", len(proxies))
-	ch <- proxies
-}
 
 // scrapeGeoNodeAPI fetches proxies from the GeoNode API.
 // Provides detailed information including country and anonymity level.
@@ -283,15 +227,6 @@ func scrapeFreeProxyList(ctx context.Context, limit int, ch chan<- []Proxy) {
 	ch <- proxies
 }
 
-func scrapeProxyScrapeLive(ctx context.Context, limit int, ch chan<- []Proxy) {
-	scrapeProxyScrape(ctx, "http", limit, ch)
-}
-
-// scrapeOpenProxySpace fetches from OpenProxy.space API
-func scrapeOpenProxySpace(ctx context.Context, protocol string, limit int, ch chan<- []Proxy) {
-	// API is often down, skip for now
-	ch <- nil
-}
 
 // scrapeProxySpace fetches from proxy-space.info (reliable GitHub-based lists)
 func scrapeProxySpace(ctx context.Context, limit int, ch chan<- []Proxy) {
@@ -323,56 +258,6 @@ func scrapeProxySpace(ctx context.Context, limit int, ch chan<- []Proxy) {
 	ch <- proxies
 }
 
-// scrapeProxyListDownload fetches from proxy-list.download API
-func scrapeProxyListDownload(ctx context.Context, protocol string, limit int, ch chan<- []Proxy) {
-	urlStr := fmt.Sprintf("https://api.proxy-list.download/api/v1/get?protocol=%s&limit=%d", protocol, limit)
-	body, err := fetchBody(ctx, urlStr)
-	if err != nil {
-		ch <- nil
-		return
-	}
-	// Parse JSON response
-	var data []struct {
-		IP       string  `json:"ip"`
-		Port     int     `json:"port"`
-		Protocol string  `json:"protocol"`
-		Anon     string  `json:"anon"`
-		Country  string  `json:"country"`
-		Latency  float64 `json:"latency"`
-	}
-	if err := json.Unmarshal(body, &data); err != nil {
-		ch <- nil
-		return
-	}
-	proxies := []Proxy{}
-	for _, d := range data {
-		if d.Protocol != "" && d.Protocol != protocol {
-			continue
-		}
-		proxies = append(proxies, Proxy{
-			IP:      d.IP,
-			Port:    uint16(d.Port),
-			Proto:   d.Protocol,
-			Country: d.Country,
-		})
-		if len(proxies) >= limit {
-			break
-		}
-	}
-	fmt.Fprintf(os.Stderr, "Scraped %d from Proxy-List.download\n", len(proxies))
-	ch <- proxies
-}
-
-// Stub functions for disabled sources
-func scrapeProxyDaily(ctx context.Context, limit int, ch chan<- []Proxy)     { ch <- nil }
-func scrapeSpysOne(ctx context.Context, limit int, ch chan<- []Proxy)        { ch <- nil }
-func scrapeProxyNova(ctx context.Context, limit int, ch chan<- []Proxy)      { ch <- nil }
-func scrapeOpenProxy(ctx context.Context, limit int, ch chan<- []Proxy)      { ch <- nil }
-func scrapeHideMyName(ctx context.Context, limit int, ch chan<- []Proxy)     { ch <- nil }
-func scrapeFreeProxyWorld(ctx context.Context, protocol string, limit int, ch chan<- []Proxy) {
-	ch <- nil
-}
-func scrapeMoreGitHubProxies(ctx context.Context, limit int, ch chan<- []Proxy) { ch <- nil }
 
 func internalRunScraper(limit int, protocol string) []Proxy {
 	workers := DefaultWorkers
